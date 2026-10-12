@@ -169,7 +169,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
 
     // MARK: Capture
 
-    func capture() {
+    /// `rotationAngle`: 90 portrait, 0 / 180 landscape, 270 upside down.
+    func capture(rotationAngle: CGFloat = 90) {
         let slot = Slot(id: UUID(), replaces: replaceTarget, options: makeOptions())
         if let target = replaceTarget { replacingIDs.insert(target) }
         replaceTarget = nil
@@ -183,8 +184,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                 DispatchQueue.main.async { self.dropOldestSlot() }
                 return
             }
-            if connection.isVideoRotationAngleSupported(90) {
-                connection.videoRotationAngle = 90   // portrait photos
+            if connection.isVideoRotationAngleSupported(rotationAngle) {
+                connection.videoRotationAngle = rotationAngle   // upright in any orientation
             }
             let settings = AVCapturePhotoSettings()
             if self.output.supportedFlashModes.contains(flashMode) {

@@ -67,12 +67,13 @@ struct ReviewView: View {
     }
 
     private func cell(_ shot: Shot, number: Int) -> some View {
-        Color.clear
+        Color.white.opacity(0.06)
             .aspectRatio(3.0 / 4.0, contentMode: .fit)
             .overlay {
+                // Fit, so landscape photos are shown whole.
                 Image(uiImage: shot.thumbnail)
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(alignment: .topLeading) {

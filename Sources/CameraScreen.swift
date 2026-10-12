@@ -8,6 +8,7 @@ import AVKit
 struct CameraScreen: View {
     @StateObject private var camera = CameraModel()
     @StateObject private var location = LocationModel()
+    @StateObject private var orientation = DeviceOrientation()
 
     @AppStorage(Keys.showLocation) private var showLocation = true
     @AppStorage(Keys.shareAfterDone) private var shareAfterDone = true
@@ -69,6 +70,7 @@ struct CameraScreen: View {
             let loc = location
             camera.locationText = { loc.placeName }
             camera.start()
+            orientation.start()
         }
         .onChange(of: showLocation, initial: true) { _, on in
             if on { location.start() } else { location.stop() }
@@ -108,6 +110,7 @@ struct CameraScreen: View {
                     .font(.title3)
                     .foregroundStyle(camera.flash == .on ? Color.yellow : Color.white)
                     .frame(width: 44, height: 44)
+                    .upright(orientation.iconAngle)
             }
             Spacer()
             Button { sheet = .files } label: {
@@ -115,12 +118,14 @@ struct CameraScreen: View {
                     .font(.title3)
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
+                    .upright(orientation.iconAngle)
             }
             Button { sheet = .settings } label: {
                 Image(systemName: "gearshape")
                     .font(.title3)
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
+                    .upright(orientation.iconAngle)
             }
         }
     }
@@ -150,6 +155,7 @@ struct CameraScreen: View {
                         .foregroundStyle(selected ? Color.yellow : Color.white)
                         .frame(width: selected ? 40 : 32, height: selected ? 40 : 32)
                         .background(Circle().fill(Color.black.opacity(0.5)))
+                        .upright(orientation.iconAngle)
                 }
             }
         }
@@ -169,7 +175,7 @@ struct CameraScreen: View {
 
     private var bottomBar: some View {
         HStack {
-            Button { sheet = .review } label: { thumbnail }
+            Button { sheet = .review } label: { thumbnail.upright(orientation.iconAngle) }
                 .disabled(totalCount == 0)
 
             Spacer()
@@ -195,6 +201,7 @@ struct CameraScreen: View {
                 }
                 .foregroundStyle(canFinish ? Color.yellow : Color.gray)
                 .frame(width: 60, height: 60)
+                .upright(orientation.iconAngle)
             }
             .disabled(!canFinish)
         }
@@ -265,7 +272,7 @@ struct CameraScreen: View {
     private func shutter() {
         guard !isBuilding else { return }
         let retaking = camera.replaceTarget != nil
-        camera.capture()
+        camera.capture(rotationAngle: orientation.captureAngle)
 
         blink = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
@@ -375,4 +382,13 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Keep icons upright when the phone turns
+
+extension View {
+    func upright(_ degrees: Double) -> some View {
+        rotationEffect(.degrees(degrees))
+            .animation(.easeInOut(duration: 0.3), value: degrees)
+    }
 }
