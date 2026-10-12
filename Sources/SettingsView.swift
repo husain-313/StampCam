@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage(Keys.quality) private var quality = Quality.medium.rawValue
     @AppStorage(Keys.pageSize) private var pageSize = PageSize.photo.rawValue
     @AppStorage(Keys.shareAfterDone) private var shareAfterDone = true
+    @AppStorage(Keys.askNameAfterDone) private var askNameAfterDone = true
 
     @Environment(\.dismiss) private var dismiss
 
@@ -87,13 +88,14 @@ struct SettingsView: View {
                     Picker("Page Size", selection: $pageSize) {
                         ForEach(PageSize.allCases) { Text($0.title).tag($0.rawValue) }
                     }
+                    Toggle("Name File After Done", isOn: $askNameAfterDone)
                     Toggle("Share After Done", isOn: $shareAfterDone)
                 } header: {
                     Text("PDF")
                 } footer: {
-                    Text(shareAfterDone
-                         ? "The share sheet opens right after you tap Done."
-                         : "PDFs are saved quietly. Find them in the folder button, or in the Files app under On My iPhone › StampCam.")
+                    Text(askNameAfterDone
+                         ? "After Done you can name the PDF, with smart suggestions from the text in your photos. You can always rename later from the folder button."
+                         : "PDFs are named by date. You can rename them anytime from the folder button.")
                 }
             }
             .navigationTitle("Settings")

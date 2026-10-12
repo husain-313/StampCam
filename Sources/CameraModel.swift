@@ -203,6 +203,12 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         }
         if d.bool(forKey: Keys.showLocation), let place = locationText?(), !place.isEmpty {
             lines.append(place)
+            // Remember stamped names so name suggestions can skip them.
+            var places = d.stringArray(forKey: Keys.stampedPlaces) ?? []
+            if !places.contains(place) {
+                places.append(place)
+                d.set(Array(places.suffix(30)), forKey: Keys.stampedPlaces)
+            }
         }
         let quality = Quality(rawValue: d.string(forKey: Keys.quality) ?? "") ?? .medium
         return CaptureOptions(lines: lines, style: StampStyle.current(), quality: quality)
