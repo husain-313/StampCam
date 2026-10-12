@@ -7,13 +7,21 @@ import PDFKit
 // MARK: - Stamp text
 
 enum StampText {
-    /// 24-hour date & time.
-    static let timeFormatter: DateFormatter = {
+    private static func formatter(_ format: String) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd  HH:mm:ss"
+        f.dateFormat = format
         return f
-    }()
+    }
+    private static let twelveHour = formatter("yyyy-MM-dd  h:mm:ss a")     // 1:05:30 PM
+    private static let twentyFourHour = formatter("yyyy-MM-dd  HH:mm:ss")  // 13:05:30
+
+    /// Date and time for the stamp, in 12-hour (AM/PM) or 24-hour format.
+    static func time(_ date: Date) -> String {
+        UserDefaults.standard.bool(forKey: Keys.use24Hour)
+            ? twentyFourHour.string(from: date)
+            : twelveHour.string(from: date)
+    }
 }
 
 // MARK: - Image processing

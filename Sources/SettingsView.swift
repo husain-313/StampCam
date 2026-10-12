@@ -8,6 +8,7 @@ struct SettingsView: View {
     let locationName: String?
 
     @AppStorage(Keys.showTime) private var showTime = true
+    @AppStorage(Keys.use24Hour) private var use24Hour = false
     @AppStorage(Keys.showLocation) private var showLocation = true
     @AppStorage(Keys.stampPosition) private var position = StampPosition.bottomRight.rawValue
     @AppStorage(Keys.stampSize) private var stampSize = Defaults.stampSize
@@ -23,7 +24,7 @@ struct SettingsView: View {
 
     private var previewLines: [String] {
         var lines: [String] = []
-        if showTime { lines.append(StampText.timeFormatter.string(from: Date())) }
+        if showTime { lines.append(StampText.time(Date())) }
         if showLocation { lines.append(locationName ?? "Area, Country") }
         return lines
     }
@@ -46,6 +47,8 @@ struct SettingsView: View {
 
                 Section {
                     Toggle("Date & Time", isOn: $showTime)
+                    Toggle("24-Hour Time", isOn: $use24Hour)
+                        .disabled(!showTime)
                     Toggle("Location", isOn: $showLocation)
                 } header: {
                     Text("On the Photo")

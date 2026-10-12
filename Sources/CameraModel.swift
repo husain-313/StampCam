@@ -463,7 +463,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         case .photo: break
         }
         if d.bool(forKey: Keys.showTime) {
-            lines.append(StampText.timeFormatter.string(from: shot.date))
+            lines.append(StampText.time(shot.date))
         }
         if d.bool(forKey: Keys.showLocation), let place = shot.placeName, !place.isEmpty {
             lines.append(place)
