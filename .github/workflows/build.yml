@@ -5,17 +5,32 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
+      - name: Use the newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -Evi 'beta|release_candidate|_rc' | sort -V | tail -1)
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
+          xcodebuild -version
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate Xcode project
         run: xcodegen generate
+
+      - name: Read app version
+        id: version
+        run: |
+          VERSION=$(grep 'MARKETING_VERSION' project.yml | head -1 | sed -E 's/.*"(.*)".*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build (unsigned)
         run: |
@@ -37,8 +52,19 @@ jobs:
           cp -R build/Build/Products/Release-iphoneos/StampCam.app Payload/
           zip -qr StampCam.ipa Payload
 
-      - name: Upload IPA
+      - name: Upload IPA (Actions)
         uses: actions/upload-artifact@v4
         with:
           name: StampCam-ipa
           path: StampCam.ipa
+
+      - name: Publish to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: StampCam ${{ steps.version.outputs.version }}
+          body: |
+            Download **StampCam.ipa** below and install it with a signing service or tool (Signulous, AltStore, Sideloadly).
+            Requires iOS 17 or later.
+          files: StampCam.ipa
+          make_latest: true
