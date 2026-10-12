@@ -4,6 +4,7 @@
 import SwiftUI
 import AVFoundation
 import AVKit
+import PhotosUI
 
 struct CameraScreen: View {
     @StateObject private var camera = CameraModel()
@@ -19,6 +20,9 @@ struct CameraScreen: View {
     @State private var blink = false
     @State private var pinchStart: CGFloat?
     @State private var isBuilding = false
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @AppStorage("showGrid") private var showGrid = false
+    @Environment(\.scenePhase) private var scenePhase
 
     enum ActiveSheet: Identifiable {
         case settings, review, files, share(URL), rename(URL)
@@ -52,8 +56,15 @@ struct CameraScreen: View {
                         .clipped()
                         .overlay(Color.black.opacity(blink ? 0.7 : 0).allowsHitTesting(false))
                         .gesture(pinchGesture)
-                        .overlay(alignment: .top) { retakeBanner }
+                        .overlay { gridAndLevel }
+                        .overlay(alignment: .top) {
+                            VStack(spacing: 0) {
+                                appendBanner
+                                retakeBanner
+                            }
+                        }
                         .overlay { toastView }
+                        .overlay { cameraDeniedView }
 
                     if camera.zoomPresets.count > 1 {
                         zoomBar.padding(.bottom, 14)
@@ -67,20 +78,61 @@ struct CameraScreen: View {
         }
         .modifier(HardwareShutter { if sheet == nil { shutter() } })
         .onAppear {
-            let loc = location
-            camera.locationText = { loc.placeName }
-            camera.start()
-            orientation.start()
+            camera.location = location
+            if camera.restoredCount > 0 {
+                showToast(camera.restoredCount == 1
+                          ? "Restored 1 photo from last time"
+                          : "Restored \(camera.restoredCount) photos from last time")
+            }
         }
-        .onChange(of: showLocation, initial: true) { _, on in
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            switch phase {
+            case .active:
+                camera.start()
+                orientation.start()
+                if showLocation { location.start() }
+                UIApplication.shared.isIdleTimerDisabled = true    // keep the screen on while shooting
+            case .background:
+                camera.stop()
+                orientation.stop()
+                location.stop()
+                UIApplication.shared.isIdleTimerDisabled = false
+            default:
+                break
+            }
+        }
+        .onChange(of: showLocation) { _, on in
             if on { location.start() } else { location.stop() }
+        }
+        .onChange(of: location.updateCount) { _, _ in
+            camera.resolvePlaces()
+        }
+        .onChange(of: pickerItems) { _, items in
+            guard !items.isEmpty else { return }
+            let picked = items
+            pickerItems = []
+            Task {
+                var added = 0
+                for item in picked {
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        camera.importPhoto(data)
+                        added += 1
+                    }
+                }
+                if added > 0 {
+                    showToast(added == 1 ? "1 photo added" : "\(added) photos added")
+                }
+            }
         }
         .sheet(item: $sheet) { item in
             switch item {
             case .settings:
                 SettingsView(locationName: location.placeName)
             case .files:
-                FilesView()
+                FilesView(onAddPhotos: { url in
+                    camera.appendTarget = url
+                    sheet = nil
+                })
             case .review:
                 ReviewView(camera: camera,
                            onRetake: { id in
@@ -112,7 +164,25 @@ struct CameraScreen: View {
                     .frame(width: 44, height: 44)
                     .upright(orientation.iconAngle)
             }
-            Spacer()
+            Button { showGrid.toggle() } label: {
+                Image(systemName: "squareshape.split.3x3")
+                    .font(.title3)
+                    .foregroundStyle(showGrid ? Color.yellow : Color.white)
+                    .frame(width: 40, height: 44)
+                    .upright(orientation.iconAngle)
+            }
+            .accessibilityLabel("Grid and level")
+            Spacer(minLength: 4)
+            if showLocation { locationPill }
+            Spacer(minLength: 4)
+            PhotosPicker(selection: $pickerItems, maxSelectionCount: 30, matching: .images) {
+                Image(systemName: "photo.on.rectangle")
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 44)
+                    .upright(orientation.iconAngle)
+            }
+            .accessibilityLabel("Add from Photos")
             Button { sheet = .files } label: {
                 Image(systemName: "folder")
                     .font(.title3)
@@ -127,6 +197,39 @@ struct CameraScreen: View {
                     .frame(width: 44, height: 44)
                     .upright(orientation.iconAngle)
             }
+        }
+    }
+
+    // MARK: Location status
+
+    private var locationPill: some View {
+        Button {
+            if location.isDenied { openSettings() }
+        } label: {
+            HStack(spacing: 6) {
+                if location.isDenied {
+                    Image(systemName: "location.slash.fill")
+                    Text("Location Off")
+                } else if let name = location.placeName {
+                    Image(systemName: "location.fill")
+                    Text(name).lineLimit(1)
+                } else {
+                    ProgressView().controlSize(.mini).tint(.white)
+                    Text("Finding location…")
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(location.isDenied ? Color.orange : Color.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(Color.white.opacity(0.12)))
+        }
+        .disabled(!location.isDenied)
+    }
+
+    private func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
         }
     }
 
@@ -210,8 +313,8 @@ struct CameraScreen: View {
     private var thumbnail: some View {
         ZStack(alignment: .topTrailing) {
             Group {
-                if let last = camera.shots.last {
-                    Image(uiImage: last.thumbnail).resizable().scaledToFill()
+                if let last = camera.shots.last, let thumb = camera.thumbnails[last.id] {
+                    Image(uiImage: thumb).resizable().scaledToFill()
                 } else {
                     Color.white.opacity(0.12)
                 }
@@ -229,6 +332,68 @@ struct CameraScreen: View {
                     .background(Capsule().fill(Color.yellow))
                     .offset(x: 10, y: -10)
             }
+        }
+    }
+
+    // MARK: Grid and level
+
+    @ViewBuilder
+    private var gridAndLevel: some View {
+        if showGrid && !camera.cameraDenied {
+            ZStack {
+                GeometryReader { geo in
+                    Path { p in
+                        for i in 1...2 {
+                            let x = geo.size.width * CGFloat(i) / 3
+                            let y = geo.size.height * CGFloat(i) / 3
+                            p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: geo.size.height))
+                            p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: geo.size.width, y: y))
+                        }
+                    }
+                    .stroke(Color.white.opacity(0.45), lineWidth: 0.7)
+                }
+                if !orientation.isFlat {
+                    let level = abs(orientation.tilt) < 1
+                    ZStack {
+                        // Fixed marks on both sides
+                        HStack(spacing: 96) {
+                            Rectangle().frame(width: 18, height: 2)
+                            Rectangle().frame(width: 18, height: 2)
+                        }
+                        .foregroundStyle(level ? Color.yellow : Color.white.opacity(0.8))
+                        .rotationEffect(.degrees(orientation.iconAngle))
+                        // Moving line that follows the horizon
+                        Rectangle()
+                            .frame(width: 90, height: 2)
+                            .foregroundStyle(level ? Color.yellow : Color.white)
+                            .rotationEffect(.degrees(orientation.iconAngle - orientation.tilt))
+                    }
+                    .animation(.easeOut(duration: 0.1), value: orientation.tilt)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private var appendBanner: some View {
+        if let target = camera.appendTarget {
+            HStack(spacing: 10) {
+                Image(systemName: "plus.rectangle.on.rectangle")
+                Text("Adding to \(target.deletingPathExtension().lastPathComponent)")
+                    .font(.subheadline.bold())
+                    .lineLimit(1)
+                Spacer()
+                Button("Cancel") { camera.appendTarget = nil }
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.yellow)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Capsule().fill(Color.black.opacity(0.6)))
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
         }
     }
 
@@ -255,8 +420,40 @@ struct CameraScreen: View {
     }
 
     @ViewBuilder
+    private var cameraDeniedView: some View {
+        if camera.cameraDenied {
+            ZStack {
+                Color.black
+                VStack(spacing: 14) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.secondary)
+                    Text("Camera Access Is Off")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    Text("Allow camera access in Settings to take photos.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Open Settings") { openSettings() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.yellow)
+                        .foregroundStyle(.black)
+                }
+                .padding(32)
+            }
+        }
+    }
+
+    private var statusText: String? {
+        if camera.waitingForLocation { return "Adding location…" }
+        if camera.pdfTotal > 0 { return "Creating PDF \(camera.pdfDone) of \(camera.pdfTotal)" }
+        return toast
+    }
+
+    @ViewBuilder
     private var toastView: some View {
-        if let toast {
+        if let toast = statusText {
             Text(toast)
                 .font(.headline)
                 .foregroundStyle(.white)
@@ -271,6 +468,7 @@ struct CameraScreen: View {
 
     private func shutter() {
         guard !isBuilding else { return }
+
         let retaking = camera.replaceTarget != nil
         camera.capture(rotationAngle: orientation.captureAngle)
 
@@ -290,10 +488,21 @@ struct CameraScreen: View {
         let hadSheet = sheet != nil
         sheet = nil
 
+        let appendTo = camera.appendTarget
         camera.makePDF { url in
             isBuilding = false
             guard let url else {
                 showToast("Couldn't create PDF")
+                return
+            }
+            if let appendTo {
+                // Adding to an existing PDF: merge, keep its name.
+                camera.appendTarget = nil
+                if FileStore.append(url, to: appendTo) {
+                    afterSaved(appendTo, delay: hadSheet ? 0.5 : 0)
+                } else {
+                    showToast("Couldn't add to the PDF; saved as a new one")
+                }
                 return
             }
             if askNameAfterDone {

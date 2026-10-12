@@ -18,6 +18,9 @@ enum Keys {
     static let flashMode = "flashMode"
     static let askNameAfterDone = "askNameAfterDone"
     static let stampedPlaces = "stampedPlaces"
+    static let stampDocuments = "stampDocuments"
+    static let idBackground = "idBackground"
+    static let idSize = "idSize"
 }
 
 // MARK: - Defaults
@@ -37,7 +40,10 @@ enum Defaults {
             Keys.pageSize: PageSize.photo.rawValue,
             Keys.shareAfterDone: true,
             Keys.flashMode: FlashMode.auto.rawValue,
-            Keys.askNameAfterDone: true
+            Keys.askNameAfterDone: true,
+            Keys.stampDocuments: false,
+            Keys.idBackground: IDBackground.white.rawValue,
+            Keys.idSize: IDSize.passport.rawValue
         ])
     }
 }
@@ -152,7 +158,7 @@ enum PageSize: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .photo: return "Photo Size"
+        case .photo: return "Fit to Photo"
         case .a4: return "A4"
         }
     }

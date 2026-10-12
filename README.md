@@ -8,7 +8,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 
 ## How it works
 
-1. **Shoot** — take as many photos as you need.
+1. **Shoot** — take as many photos as you need, or add some from your library.
 2. **Tap Done** — all photos are combined into one PDF instantly.
 3. **Name & share** — pick a name (StampCam suggests one from the text in your photos) and send it anywhere.
 
@@ -21,6 +21,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 - Zoom with two fingers or tap the lens buttons (.5×, 1×, 2×, 5×)
 - Take photos with the volume buttons or the Camera Control button
 - Shoot in portrait or landscape — photos and the stamp are always upright
+- Grid lines and a level to keep shots straight
 
 ### 🕒 Date, time & location on every photo
 - Date and time in 24-hour format
@@ -35,6 +36,8 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 - Delete any photo
 - Retake a photo — the new one goes in the same spot
 - Add more photos at any time
+- Press and drag to change the order
+- Add photos from your library — they keep their own date and location
 - Your photos are saved as you shoot — close the app or restart your phone and pick up where you left off
 
 ### ✨ Smart file names
@@ -45,6 +48,8 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 ### 📁 Your PDFs
 - All PDFs are saved inside the app
 - Open, rename, share or delete them anytime
+- Select several (or all) at once to share, move to the Files app or delete
+- Add more photos to the end of a PDF you already made
 - Also available in the **Files** app under *On My iPhone › StampCam*
 
 ### ⚙️ Settings

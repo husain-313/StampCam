@@ -14,16 +14,34 @@ final class DeviceOrientation: ObservableObject {
     }
 
     @Published private(set) var hold: Hold = .portrait
+    /// How far the phone is tilted from level, in degrees (for the level indicator).
+    @Published private(set) var tilt: Double = 0
+    /// True when the phone is lying flat (the level is hidden then).
+    @Published private(set) var isFlat = false
 
     private let motion = CMMotionManager()
 
     func start() {
         guard motion.isDeviceMotionAvailable, !motion.isDeviceMotionActive else { return }
-        motion.deviceMotionUpdateInterval = 0.2
+        motion.deviceMotionUpdateInterval = 0.1
         motion.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
             guard let self, let g = data?.gravity else { return }
-            // Ignore when the phone is lying flat or the tilt is unclear.
             let x = g.x, y = g.y
+
+            // Level: angle between gravity and "down" for the way the phone is held.
+            let flat = abs(g.z) > 0.9
+            if flat != self.isFlat { self.isFlat = flat }
+            let down: (Double, Double)
+            switch self.hold {
+            case .portrait: down = (0, -1)
+            case .portraitUpsideDown: down = (0, 1)
+            case .landscapeLeft: down = (-1, 0)
+            case .landscapeRight: down = (1, 0)
+            }
+            let angle = atan2(down.0 * y - down.1 * x, down.0 * x + down.1 * y) * 180 / .pi
+            if abs(angle - self.tilt) > 0.2 { self.tilt = angle }
+
+            // Ignore when the phone is lying flat or the tilt is unclear.
             guard max(abs(x), abs(y)) > 0.55 else { return }
 
             let newHold: Hold

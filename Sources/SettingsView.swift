@@ -44,9 +44,13 @@ struct SettingsView: View {
                     .listRowBackground(Color.clear)
                 }
 
-                Section("On the Photo") {
+                Section {
                     Toggle("Date & Time", isOn: $showTime)
                     Toggle("Location", isOn: $showLocation)
+                } header: {
+                    Text("On the Photo")
+                } footer: {
+                    Text("Stamp settings apply to all photos in the set when you tap Done, even ones you already took.")
                 }
 
                 Section("Text") {
@@ -93,9 +97,10 @@ struct SettingsView: View {
                 } header: {
                     Text("PDF")
                 } footer: {
-                    Text(askNameAfterDone
-                         ? "After Done you can name the PDF, with smart suggestions from the text in your photos. You can always rename later from the folder button."
-                         : "PDFs are named by date. You can rename them anytime from the folder button.")
+                    Text("Fit to Photo: each page has the photo's shape, no margins. A4: standard paper with white margins, best for printing.\n\n"
+                         + (askNameAfterDone
+                            ? "After Done you can name the PDF, with smart suggestions from the text in your photos. You can always rename later from the folder button."
+                            : "PDFs are named by date. You can rename them anytime from the folder button."))
                 }
             }
             .navigationTitle("Settings")

@@ -1,19 +1,31 @@
 //  LocationModel.swift
-//  Keeps the current area name (e.g. "Riffa, Bahrain") up to date.
+//  Current location, its area name (e.g. "Riffa, Bahrain"), and name lookups for any spot.
 
+import Foundation
 import CoreLocation
+import MapKit
 
 final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
-    private let geocoder = CLGeocoder()
-    private var lastGeocoded: CLLocation?
 
+    @Published private(set) var current: CLLocation?
     @Published private(set) var placeName: String?
+    @Published private(set) var authorization: CLAuthorizationStatus = .notDetermined
+    /// Goes up whenever a new location or name arrives (used to fill in photos taken without one).
+    @Published private(set) var updateCount = 0
+
+    private var cache: [(location: CLLocation, name: String)] = []
+    private var waiting: [String: [(String?) -> Void]] = [:]
+    private var lastLookup = Date.distantPast
+
+    var isDenied: Bool { authorization == .denied || authorization == .restricted }
 
     override init() {
         super.init()
+        authorization = manager.authorizationStatus
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        manager.distanceFilter = 30
     }
 
     func start() {
@@ -27,36 +39,113 @@ final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate
         manager.stopUpdatingLocation()
     }
 
+    // MARK: Names
+
+    /// A name already looked up within 150 m of this spot.
+    func cachedName(near location: CLLocation) -> String? {
+        cache.first { $0.location.distance(from: location) < 150 }?.name
+    }
+
+    /// Looks up the area name for a spot (cached; one lookup per area at a time).
+    func requestName(for location: CLLocation, completion: @escaping (String?) -> Void) {
+        if let name = cachedName(near: location) {
+            completion(name)
+            return
+        }
+        let key = String(format: "%.3f,%.3f", location.coordinate.latitude, location.coordinate.longitude)
+        if waiting[key] != nil {
+            waiting[key]?.append(completion)
+            return
+        }
+        waiting[key] = [completion]
+        lastLookup = Date()
+
+        Task {
+            let name = await PlaceNamer.name(for: location)
+            await MainActor.run {
+                if let name { self.cache.append((location, name)) }
+                let callbacks = self.waiting.removeValue(forKey: key) ?? []
+                callbacks.forEach { $0(name) }
+                self.updateCount += 1
+            }
+        }
+    }
+
+    // MARK: CLLocationManagerDelegate
+
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
-        if status == .authorizedWhenInUse || status == .authorizedAlways {
+        authorization = manager.authorizationStatus
+        if authorization == .authorizedWhenInUse || authorization == .authorizedAlways {
             manager.startUpdatingLocation()
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
+        guard let location = locations.last,
+              location.horizontalAccuracy >= 0, location.horizontalAccuracy < 1000 else { return }
+        current = location
+        updateCount += 1
 
-        // Only look up the name again after moving more than 100 m.
-        if let last = lastGeocoded, placeName != nil, location.distance(from: last) < 100 { return }
-        guard !geocoder.isGeocoding else { return }
-
-        geocoder.reverseGeocodeLocation(location, preferredLocale: Locale(identifier: "en_US")) { [weak self] places, _ in
-            guard let self, let place = places?.first else { return }
-            let area = place.subLocality ?? place.locality ?? place.administrativeArea
-            var parts: [String] = []
-            if let area { parts.append(area) }
-            if let country = place.country, country != area { parts.append(country) }
-            guard !parts.isEmpty else { return }
-
-            DispatchQueue.main.async {
-                self.placeName = parts.joined(separator: ", ")
-                self.lastGeocoded = location
-            }
+        if let name = cachedName(near: location) {
+            if placeName != name { placeName = name }
+            return
+        }
+        // Don't flood Apple's servers while moving: at most one new lookup every 5 seconds.
+        guard placeName == nil || Date().timeIntervalSince(lastLookup) > 5 else { return }
+        requestName(for: location) { [weak self] name in
+            guard let self, let name,
+                  let now = self.current, now.distance(from: location) < 150 else { return }
+            self.placeName = name
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        // Keep the last known name; nothing else to do.
+        // Keep the last known location; updates resume on their own.
+    }
+}
+
+// MARK: - Area name lookup
+
+enum PlaceNamer {
+    /// Uses Apple's new API on iOS 26, and the classic one on older iOS (or if the new one fails).
+    static func name(for location: CLLocation) async -> String? {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            if let name = await modernName(for: location) { return name }
+        }
+        #endif
+        return await classicName(for: location)
+    }
+
+    #if compiler(>=6.2)
+    @available(iOS 26.0, *)
+    private static func modernName(for location: CLLocation) async -> String? {
+        guard let request = MKReverseGeocodingRequest(location: location) else { return nil }
+        request.preferredLocale = Locale(identifier: "en_US")
+        return await withCheckedContinuation { continuation in
+            request.getMapItems { items, _ in
+                let address = items?.first?.addressRepresentations
+                continuation.resume(returning: join(address?.cityName, address?.regionName))
+            }
+        }
+    }
+    #endif
+
+    private static func classicName(for location: CLLocation) async -> String? {
+        await withCheckedContinuation { continuation in
+            CLGeocoder().reverseGeocodeLocation(location, preferredLocale: Locale(identifier: "en_US")) { places, _ in
+                let place = places?.first
+                let area = place?.subLocality ?? place?.locality ?? place?.administrativeArea
+                continuation.resume(returning: join(area, place?.country))
+            }
+        }
+    }
+
+    /// "Area, Country" (without repeating the country).
+    private static func join(_ area: String?, _ country: String?) -> String? {
+        var parts: [String] = []
+        if let area, !area.isEmpty { parts.append(area) }
+        if let country, !country.isEmpty, country != area { parts.append(country) }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 }

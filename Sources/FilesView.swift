@@ -1,5 +1,5 @@
 //  FilesView.swift
-//  Saved PDFs: open, rename (with smart suggestions), share, delete.
+//  Saved PDFs: open, rename (with smart suggestions), share, delete — one at a time or several together.
 
 import SwiftUI
 import PDFKit
@@ -10,10 +10,16 @@ struct FilesView: View {
     @State private var path: [PDFFile] = []
     @State private var renaming: PDFFile?
     @State private var deleting: PDFFile?
+    @State private var editMode: EditMode = .inactive
+    @State private var selection = Set<URL>()
+    @State private var confirmBulkDelete = false
+    @State private var showMover = false
+    /// Adds new photos to the end of this PDF (back to the camera).
+    var onAddPhotos: (URL) -> Void = { _ in }
 
     var body: some View {
         NavigationStack(path: $path) {
-            List {
+            List(selection: $selection) {
                 ForEach(files) { file in
                     NavigationLink(value: file) {
                         VStack(alignment: .leading, spacing: 4) {
@@ -39,6 +45,9 @@ struct FilesView: View {
                         .tint(.orange)
                     }
                     .contextMenu {
+                        Button { onAddPhotos(file.url) } label: {
+                            Label("Add Photos", systemImage: "plus.rectangle.on.rectangle")
+                        }
                         Button { renaming = file } label: {
                             Label("Rename", systemImage: "pencil")
                         }
@@ -51,6 +60,7 @@ struct FilesView: View {
                     }
                 }
             }
+            .environment(\.editMode, $editMode)
             .overlay {
                 if files.isEmpty {
                     ContentUnavailableView("No PDFs Yet",
@@ -58,17 +68,62 @@ struct FilesView: View {
                                            description: Text("Your PDFs will show up here."))
                 }
             }
-            .navigationTitle("Files")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: PDFFile.self) { file in
                 PDFDetailView(file: file,
+                              onAddPhotos: { onAddPhotos(file.url) },
                               onRename: { renaming = file },
                               onDelete: { deleting = file })
             }
+            .navigationTitle(isSelecting ? (selection.isEmpty ? "Select PDFs" : "\(selection.count) Selected") : "Files")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if !files.isEmpty {
+                        Button(isSelecting ? "Cancel" : "Select") {
+                            withAnimation {
+                                editMode = isSelecting ? .inactive : .active
+                                selection.removeAll()
+                            }
+                        }
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+                if isSelecting {
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        Button(allSelected ? "Deselect All" : "Select All") {
+                            selection = allSelected ? [] : Set(files.map(\.url))
+                        }
+                        Spacer()
+                        ShareLink(items: selectedURLs) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .disabled(selection.isEmpty)
+                        Button { showMover = true } label: {
+                            Image(systemName: "folder")
+                        }
+                        .accessibilityLabel("Move to Files")
+                        .disabled(selection.isEmpty)
+                        Button(role: .destructive) { confirmBulkDelete = true } label: {
+                            Image(systemName: "trash")
+                        }
+                        .tint(.red)
+                        .disabled(selection.isEmpty)
+                    }
+                }
+            }
+            .confirmationDialog(selection.count == 1 ? "Delete 1 PDF?" : "Delete \(selection.count) PDFs?",
+                                isPresented: $confirmBulkDelete,
+                                titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    files.filter { selection.contains($0.url) }.forEach(FileStore.delete)
+                    finishSelecting()
+                }
+            }
+            .fileMover(isPresented: $showMover, files: selectedURLs) { _ in
+                // Moved to the folder you picked in the Files app.
+                finishSelecting()
             }
             .onAppear(perform: reload)
             .sheet(item: $renaming) { file in
@@ -93,8 +148,19 @@ struct FilesView: View {
         }
     }
 
+    private var isSelecting: Bool { editMode.isEditing }
+    private var allSelected: Bool { !files.isEmpty && selection.count == files.count }
+    private var selectedURLs: [URL] { files.map(\.url).filter { selection.contains($0) } }
+
+    private func finishSelecting() {
+        selection.removeAll()
+        editMode = .inactive
+        reload()
+    }
+
     private func reload() {
         files = FileStore.list()
+        selection = selection.filter { url in files.contains { $0.url == url } }
     }
 }
 
@@ -102,6 +168,7 @@ struct FilesView: View {
 
 struct PDFDetailView: View {
     let file: PDFFile
+    var onAddPhotos: () -> Void
     var onRename: () -> Void
     var onDelete: () -> Void
 
@@ -112,6 +179,10 @@ struct PDFDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button(action: onAddPhotos) {
+                        Image(systemName: "plus.rectangle.on.rectangle")
+                    }
+                    .accessibilityLabel("Add Photos")
                     Button(action: onRename) {
                         Image(systemName: "pencil")
                     }
