@@ -1,15 +1,10 @@
 //  Processing.swift
-//  Resizing, stamping and compressing photos, and building the PDF.
+//  Stamping and resizing photos, building the PDF, and the saved PDF files.
 
 import UIKit
+import PDFKit
 
-// MARK: - Options captured at the moment of the shot
-
-struct CaptureOptions {
-    let lines: [String]
-    let style: StampStyle
-    let quality: Quality
-}
+// MARK: - Stamp text
 
 enum StampText {
     /// 24-hour date & time.
@@ -24,9 +19,10 @@ enum StampText {
 // MARK: - Image processing
 
 enum ImageProcessor {
-    static func process(_ image: UIImage, options: CaptureOptions) -> (data: Data, thumbnail: UIImage) {
+    /// Resizes the photo and prints the stamp on it.
+    static func render(_ image: UIImage, lines: [String], style: StampStyle, maxDimension: CGFloat) -> UIImage {
         let size = image.size
-        let scale = min(1, options.quality.maxDimension / max(size.width, size.height))
+        let scale = min(1, maxDimension / max(size.width, size.height))
         let target = CGSize(width: (size.width * scale).rounded(),
                             height: (size.height * scale).rounded())
 
@@ -34,19 +30,12 @@ enum ImageProcessor {
         format.scale = 1
         format.opaque = true
 
-        let rendered = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+        return UIGraphicsImageRenderer(size: target, format: format).image { _ in
             image.draw(in: CGRect(origin: .zero, size: target))
-            if !options.lines.isEmpty {
-                drawStamp(options.lines, style: options.style, canvas: target)
+            if !lines.isEmpty {
+                drawStamp(lines, style: style, canvas: target)
             }
         }
-
-        let data = rendered.jpegData(compressionQuality: options.quality.compression) ?? Data()
-        let thumbWidth: CGFloat = 300
-        let thumbSize = CGSize(width: thumbWidth,
-                               height: (thumbWidth * target.height / target.width).rounded())
-        let thumbnail = rendered.preparingThumbnail(of: thumbSize) ?? rendered
-        return (data, thumbnail)
     }
 
     /// Bold text only (no box), with a soft shadow so it stays readable.
@@ -87,36 +76,104 @@ enum ImageProcessor {
 
 // MARK: - PDF
 
+struct PDFPageSource {
+    let shot: Shot
+    let lines: [String]
+}
+
 enum PDFBuilder {
     static let a4 = CGSize(width: 595.2, height: 841.8)
 
-    static func build(_ pages: [Data], pageSize: PageSize) -> URL? {
+    /// Builds the PDF from the saved photos. The stamp, filters, quality and page size
+    /// are applied here, so the latest settings always count.
+    static func build(_ pages: [PDFPageSource],
+                      style: StampStyle,
+                      quality: Quality,
+                      pageSize: PageSize,
+                      progress: @escaping (Int) -> Void) -> URL? {
         guard !pages.isEmpty else { return nil }
         let url = FileStore.newFileURL()
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: a4))
+        var written = 0
 
         do {
             try renderer.writePDF(to: url) { ctx in
-                for data in pages {
-                    guard let image = UIImage(data: data) else { continue }
-                    switch pageSize {
-                    case .photo:
-                        let rect = CGRect(origin: .zero, size: image.size)
-                        ctx.beginPage(withBounds: rect, pageInfo: [:])
-                        image.draw(in: rect)
-                    case .a4:
-                        // Landscape photos get a landscape A4 page.
-                        let landscape = image.size.width > image.size.height
-                        let a4Size = landscape ? CGSize(width: a4.height, height: a4.width) : a4
-                        let page = CGRect(origin: .zero, size: a4Size)
-                        ctx.beginPage(withBounds: page, pageInfo: [:])
-                        image.draw(in: fit(image.size, in: page.insetBy(dx: 20, dy: 20)))
+                for (index, page) in pages.enumerated() {
+                    autoreleasepool {
+                        guard let rendered = ShotRenderer.render(page.shot, lines: page.lines,
+                                                                 style: style, maxDimension: quality.maxDimension) else { return }
+                        // Re-open as JPEG so the PDF stores compressed photos (small file).
+                        let compression = page.shot.shotKind == .idPhoto ? max(quality.compression, 0.85) : quality.compression
+                        guard let data = rendered.jpegData(compressionQuality: compression),
+                              let image = UIImage(data: data) else { return }
+
+                        if page.shot.shotKind == .idPhoto {
+                            drawIDPhoto(image, size: page.shot.idSize ?? .passport, pageSize: pageSize, ctx: ctx)
+                        } else {
+                            drawPage(image, pageSize: pageSize, ctx: ctx)
+                        }
+                        written += 1
                     }
+                    progress(index + 1)
                 }
             }
-            return url
         } catch {
             return nil
+        }
+
+        guard written > 0 else {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
+        return url
+    }
+
+    private static func drawPage(_ image: UIImage, pageSize: PageSize, ctx: UIGraphicsPDFRendererContext) {
+        let landscape = image.size.width > image.size.height
+        switch pageSize {
+        case .photo:
+            // Page shaped like the photo, with the long side as long as A4.
+            let ratio = a4.height / max(image.size.width, image.size.height)
+            let rect = CGRect(x: 0, y: 0,
+                              width: (image.size.width * ratio).rounded(),
+                              height: (image.size.height * ratio).rounded())
+            ctx.beginPage(withBounds: rect, pageInfo: [:])
+            image.draw(in: rect)
+        case .a4:
+            // Landscape photos get a landscape A4 page.
+            let a4Size = landscape ? CGSize(width: a4.height, height: a4.width) : a4
+            let page = CGRect(origin: .zero, size: a4Size)
+            ctx.beginPage(withBounds: page, pageInfo: [:])
+            image.draw(in: fit(image.size, in: page.insetBy(dx: 20, dy: 20)))
+        }
+    }
+
+    /// ID photos print at their real size: one per page, or as many copies as fit on A4.
+    private static func drawIDPhoto(_ image: UIImage, size: IDSize, pageSize: PageSize, ctx: UIGraphicsPDFRendererContext) {
+        let photo = size.points
+        switch pageSize {
+        case .photo:
+            let rect = CGRect(origin: .zero, size: photo)
+            ctx.beginPage(withBounds: rect, pageInfo: [:])
+            image.draw(in: rect)
+        case .a4:
+            let page = CGRect(origin: .zero, size: a4)
+            ctx.beginPage(withBounds: page, pageInfo: [:])
+            let margin: CGFloat = 28, gap: CGFloat = 10
+            let columns = max(1, Int((a4.width - 2 * margin + gap) / (photo.width + gap)))
+            let rows = max(1, Int((a4.height - 2 * margin + gap) / (photo.height + gap)))
+            let cg = ctx.cgContext
+            cg.setStrokeColor(UIColor(white: 0.75, alpha: 1).cgColor)
+            cg.setLineWidth(0.4)
+            for row in 0..<rows {
+                for column in 0..<columns {
+                    let rect = CGRect(x: margin + CGFloat(column) * (photo.width + gap),
+                                      y: margin + CGFloat(row) * (photo.height + gap),
+                                      width: photo.width, height: photo.height)
+                    image.draw(in: rect)
+                    cg.stroke(rect)      // thin cut line
+                }
+            }
         }
     }
 
@@ -170,6 +227,25 @@ enum FileStore {
                                size: Int64(values?.fileSize ?? 0))
             }
             .sorted { $0.date > $1.date }
+    }
+
+    /// Adds the pages of `newPDF` to the end of `target`, then removes `newPDF`.
+    static func append(_ newPDF: URL, to target: URL) -> Bool {
+        guard let base = PDFDocument(url: target), let extra = PDFDocument(url: newPDF) else { return false }
+        for i in 0..<extra.pageCount {
+            guard let page = extra.page(at: i)?.copy() as? PDFPage else { continue }
+            base.insert(page, at: base.pageCount)
+        }
+        let temp = folder.appendingPathComponent(".merge-\(UUID().uuidString).pdf")
+        guard base.write(to: temp) else { return false }
+        do {
+            _ = try FileManager.default.replaceItemAt(target, withItemAt: temp)
+            try? FileManager.default.removeItem(at: newPDF)
+            return true
+        } catch {
+            try? FileManager.default.removeItem(at: temp)
+            return false
+        }
     }
 
     static func delete(_ file: PDFFile) {

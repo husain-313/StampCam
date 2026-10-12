@@ -1,17 +1,10 @@
 //  CameraModel.swift
-//  Camera session, flash, zoom, capturing and the list of photos in the current set.
+//  Camera session, flash, zoom, capturing, the saved set of photos, and making the PDF.
 
 import SwiftUI
 import UIKit
 import AVFoundation
-
-// MARK: - A photo in the current set
-
-struct Shot: Identifiable {
-    let id: UUID
-    let data: Data          // final JPEG (resized, stamped, compressed)
-    let thumbnail: UIImage
-}
+import CoreLocation
 
 // MARK: - Flash
 
@@ -55,11 +48,16 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     private var device: AVCaptureDevice?
     private var baseFactor: CGFloat = 1   // device zoom factor that equals "1x"
 
-    // UI state (main thread)
+    // The current set (main thread)
     @Published private(set) var shots: [Shot] = []
+    @Published private(set) var thumbnails: [UUID: UIImage] = [:]
     @Published private(set) var pendingCount = 0
     @Published private(set) var replacingIDs: Set<UUID> = []
     @Published var replaceTarget: UUID?
+    /// When set, Done adds the new photos to the end of this existing PDF.
+    @Published var appendTarget: URL?
+
+    // Camera controls
     @Published var flash: FlashMode {
         didSet { UserDefaults.standard.set(flash.rawValue, forKey: Keys.flashMode) }
     }
@@ -67,14 +65,24 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published private(set) var zoomPresets: [CGFloat] = [1]
     @Published private(set) var minZoom: CGFloat = 1
     @Published private(set) var maxZoom: CGFloat = 10
+    @Published private(set) var cameraDenied = false
 
-    /// Returns the current area name (set by the screen).
-    var locationText: (() -> String?)?
+    // Status
+    @Published private(set) var restoredCount = 0
+    @Published private(set) var waitingForLocation = false
+    @Published private(set) var pdfDone = 0
+    @Published private(set) var pdfTotal = 0
+
+    /// Set by the screen; used to tag photos with a location and area name.
+    weak var location: LocationModel?
 
     private struct Slot {
         let id: UUID
+        let date: Date
         let replaces: UUID?
-        let options: CaptureOptions
+        let coordinate: CLLocationCoordinate2D?
+        let placeName: String?
+        let kind: ShotKind
     }
     private var pendingSlots: [Slot] = []   // main thread only
 
@@ -82,17 +90,50 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         let saved = FlashMode(rawValue: UserDefaults.standard.string(forKey: Keys.flashMode) ?? "") ?? .auto
         _flash = Published(initialValue: saved)
         super.init()
+        restoreSession()
+    }
+
+    // MARK: Saved session
+
+    private func restoreSession() {
+        let saved = SessionStore.load()
+        SessionStore.removeOrphans(keeping: Set(saved.map(\.id)))
+        shots = saved
+        restoredCount = saved.count
+        processQueue.async {
+            for shot in saved {
+                guard let thumb = Self.makeThumbnail(shot) else { continue }
+                DispatchQueue.main.async { self.thumbnails[shot.id] = thumb }
+            }
+        }
+    }
+
+    private func persist() {
+        SessionStore.save(shots)
     }
 
     // MARK: Session
 
     func start() {
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        if status == .denied || status == .restricted {
+            cameraDenied = true
+            return
+        }
         AVCaptureDevice.requestAccess(for: .video) { granted in
+            DispatchQueue.main.async { self.cameraDenied = !granted }
             guard granted else { return }
             self.sessionQueue.async {
                 self.configureIfNeeded()
                 if !self.session.isRunning { self.session.startRunning() }
             }
+        }
+    }
+
+    /// Pauses the camera (app in background) to save battery.
+    func stop() {
+        sessionQueue.async {
+            if self.session.isRunning { self.session.stopRunning() }
         }
     }
 
@@ -112,7 +153,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         session.commitConfiguration()
         device = dev
 
-        // Work out the lens buttons (.5, 1, 2, 5) like the built-in Camera app.
+        // Lens buttons (.5, 1, 2, 5) like the built-in Camera app.
         let switchOvers = dev.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat(truncating: $0) }
         let hasUltraWide = dev.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
         let hasTele = dev.constituentDevices.contains { $0.deviceType == .builtInTelephotoCamera }
@@ -170,8 +211,17 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     // MARK: Capture
 
     /// `rotationAngle`: 90 portrait, 0 / 180 landscape, 270 upside down.
-    func capture(rotationAngle: CGFloat = 90) {
-        let slot = Slot(id: UUID(), replaces: replaceTarget, options: makeOptions())
+    func capture(rotationAngle: CGFloat = 90, kind: ShotKind = .photo) {
+        // Location at the moment of the shot (only if it's fresh).
+        var coordinate: CLLocationCoordinate2D?
+        var placeName: String?
+        if let current = location?.current, Date().timeIntervalSince(current.timestamp) < 120 {
+            coordinate = current.coordinate
+            placeName = location?.cachedName(near: current)
+        }
+
+        let slot = Slot(id: UUID(), date: Date(), replaces: replaceTarget,
+                        coordinate: coordinate, placeName: placeName, kind: kind)
         if let target = replaceTarget { replacingIDs.insert(target) }
         replaceTarget = nil
         pendingSlots.append(slot)
@@ -195,59 +245,159 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         }
     }
 
-    /// Reads the settings and location at the moment the shutter is pressed.
-    private func makeOptions() -> CaptureOptions {
-        let d = UserDefaults.standard
-        var lines: [String] = []
-        if d.bool(forKey: Keys.showTime) {
-            lines.append(StampText.timeFormatter.string(from: Date()))
-        }
-        if d.bool(forKey: Keys.showLocation), let place = locationText?(), !place.isEmpty {
-            lines.append(place)
-            // Remember stamped names so name suggestions can skip them.
-            var places = d.stringArray(forKey: Keys.stampedPlaces) ?? []
-            if !places.contains(place) {
-                places.append(place)
-                d.set(Array(places.suffix(30)), forKey: Keys.stampedPlaces)
-            }
-        }
-        let quality = Quality(rawValue: d.string(forKey: Keys.quality) ?? "") ?? .medium
-        return CaptureOptions(lines: lines, style: StampStyle.current(), quality: quality)
-    }
-
     func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishProcessingPhoto photo: AVCapturePhoto,
                      error: Error?) {
-        let image = photo.fileDataRepresentation().flatMap { UIImage(data: $0) }
+        let data = photo.fileDataRepresentation()
         DispatchQueue.main.async {
             guard !self.pendingSlots.isEmpty else { return }
             let slot = self.pendingSlots.removeFirst()
-            guard let image else {
-                self.complete(slot, with: nil)
+            guard let data else {
+                self.complete(slot, saved: false, thumbnail: nil)
                 return
             }
+            // Save the original photo to the iPhone right away.
             self.processQueue.async {
-                let result = ImageProcessor.process(image, options: slot.options)
-                let shot = Shot(id: slot.id, data: result.data, thumbnail: result.thumbnail)
-                DispatchQueue.main.async { self.complete(slot, with: shot) }
+                let saved = SessionStore.writeImage(data, id: slot.id)
+                let thumb = saved ? Self.makeThumbnail(Self.newShot(from: slot)) : nil
+                DispatchQueue.main.async { self.complete(slot, saved: saved, thumbnail: thumb) }
             }
+        }
+    }
+
+    private static func newShot(from slot: Slot) -> Shot {
+        var shot = Shot(id: slot.id, date: slot.date,
+                        latitude: slot.coordinate?.latitude,
+                        longitude: slot.coordinate?.longitude,
+                        placeName: slot.placeName)
+        shot.kind = slot.kind
+        if slot.kind == .idPhoto {
+            let d = UserDefaults.standard
+            shot.idBackground = IDBackground(rawValue: d.string(forKey: Keys.idBackground) ?? "") ?? .white
+            shot.idSize = IDSize(rawValue: d.string(forKey: Keys.idSize) ?? "") ?? .passport
+        }
+        if slot.kind == .document { shot.filter = .original }
+        return shot
+    }
+
+    /// Thumbnail showing the shot's final look (filter / new background), without the stamp.
+    static func makeThumbnail(_ shot: Shot) -> UIImage? {
+        switch shot.shotKind {
+        case .photo:
+            return SessionStore.thumbnail(shot.id)
+        case .document, .idPhoto:
+            return ShotRenderer.render(shot, lines: [], style: StampStyle.current(), maxDimension: 360)
+        }
+    }
+
+    // MARK: Order
+
+    /// Moves a photo to the position of another (drag and drop in the review grid).
+    func move(_ id: UUID, to target: UUID) {
+        guard id != target,
+              let from = shots.firstIndex(where: { $0.id == id }),
+              let to = shots.firstIndex(where: { $0.id == target }) else { return }
+        let shot = shots.remove(at: from)
+        shots.insert(shot, at: to)
+        persist()
+    }
+
+    // MARK: Photos from the library
+
+    /// Adds a photo from the library, using its own date and location when it has them.
+    func importPhoto(_ data: Data) {
+        let id = UUID()
+        let info = PhotoInfo.read(data)
+        pendingCount += 1
+        processQueue.async {
+            let saved = SessionStore.writeImage(data, id: id)
+            let thumb = saved ? SessionStore.thumbnail(id) : nil
+            DispatchQueue.main.async {
+                self.pendingCount -= 1
+                guard saved else { return }
+                var shot = Shot(id: id, date: info.date ?? Date(),
+                                latitude: info.coordinate?.latitude,
+                                longitude: info.coordinate?.longitude,
+                                placeName: nil)
+                shot.imported = true
+                if let thumb { self.thumbnails[id] = thumb }
+                self.shots.append(shot)
+                self.persist()
+                self.resolvePlaces()
+            }
+        }
+    }
+
+    // MARK: Scanned documents
+
+    /// Adds pages from the document scanner to the set.
+    func addScannedPages(_ pages: [UIImage]) {
+        guard !pages.isEmpty else { return }
+        var coordinate: CLLocationCoordinate2D?
+        var placeName: String?
+        if let current = location?.current, Date().timeIntervalSince(current.timestamp) < 120 {
+            coordinate = current.coordinate
+            placeName = location?.cachedName(near: current)
+        }
+        let now = Date()
+        let slots = pages.indices.map { i in
+            Slot(id: UUID(), date: now.addingTimeInterval(Double(i) * 0.001), replaces: nil,
+                 coordinate: coordinate, placeName: placeName, kind: .document)
+        }
+        pendingCount += pages.count
+        processQueue.async {
+            for (slot, page) in zip(slots, pages) {
+                let data = page.jpegData(compressionQuality: 0.9)
+                let saved = data.map { SessionStore.writeImage($0, id: slot.id) } ?? false
+                let thumb = saved ? Self.makeThumbnail(Self.newShot(from: slot)) : nil
+                DispatchQueue.main.async { self.complete(slot, saved: saved, thumbnail: thumb) }
+            }
+        }
+    }
+
+    /// Changes a shot's options (filter, background, size) and refreshes its thumbnail.
+    func update(_ id: UUID, _ change: (inout Shot) -> Void) {
+        guard let index = shots.firstIndex(where: { $0.id == id }) else { return }
+        change(&shots[index])
+        persist()
+        let shot = shots[index]
+        processQueue.async {
+            let thumb = Self.makeThumbnail(shot)
+            DispatchQueue.main.async { if let thumb { self.thumbnails[id] = thumb } }
         }
     }
 
     private func dropOldestSlot() {
         guard !pendingSlots.isEmpty else { return }
-        complete(pendingSlots.removeFirst(), with: nil)
+        complete(pendingSlots.removeFirst(), saved: false, thumbnail: nil)
     }
 
-    private func complete(_ slot: Slot, with shot: Shot?) {
+    private func complete(_ slot: Slot, saved: Bool, thumbnail: UIImage?) {
         pendingCount -= 1
         if let old = slot.replaces { replacingIDs.remove(old) }
-        guard let shot else { return }
+        guard saved else { return }
+
+        var shot = Self.newShot(from: slot)
+        if let thumbnail { thumbnails[shot.id] = thumbnail }
+
         if let old = slot.replaces, let index = shots.firstIndex(where: { $0.id == old }) {
-            shots[index] = shot          // retake: same position
+            // Retake: same position, and keep the options chosen for the old one.
+            let previous = shots[index]
+            if previous.shotKind == shot.shotKind {
+                shot.filter = previous.filter
+                shot.idBackground = previous.idBackground
+                shot.idSize = previous.idSize
+            }
+            shots[index] = shot
+            removeFiles(for: old)
+            if shot.idBackground != Self.newShot(from: slot).idBackground || shot.idSize != Self.newShot(from: slot).idSize {
+                update(shot.id) { _ in }     // refresh the thumbnail with the kept options
+            }
         } else {
-            shots.append(shot)           // new photo: at the end
+            shots.append(shot)               // new photo: at the end
         }
+        persist()
+        resolvePlaces()
     }
 
     // MARK: Editing the set
@@ -255,23 +405,155 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     func delete(_ id: UUID) {
         shots.removeAll { $0.id == id }
         if replaceTarget == id { replaceTarget = nil }
+        removeFiles(for: id)
+        persist()
+    }
+
+    private func removeFiles(for id: UUID) {
+        thumbnails[id] = nil
+        processQueue.async { SessionStore.deleteImage(id) }
+    }
+
+    // MARK: Location on every photo
+
+    /// Fills in the location and area name for photos taken before they were ready.
+    func resolvePlaces() {
+        guard let location else { return }
+        var changed = false
+
+        for index in shots.indices where shots[index].placeName == nil {
+            // Taken before the first location fix: use the first fix if it came within 5 minutes.
+            // (Photos added from the library keep only their own location.)
+            if shots[index].location == nil,
+               shots[index].imported != true,
+               let current = location.current,
+               abs(current.timestamp.timeIntervalSince(shots[index].date)) < 300 {
+                shots[index].latitude = current.coordinate.latitude
+                shots[index].longitude = current.coordinate.longitude
+                changed = true
+            }
+            guard let spot = shots[index].location else { continue }
+
+            if let name = location.cachedName(near: spot) {
+                shots[index].placeName = name
+                changed = true
+            } else {
+                let id = shots[index].id
+                location.requestName(for: spot) { [weak self] name in
+                    guard let self, let name,
+                          let i = self.shots.firstIndex(where: { $0.id == id }),
+                          self.shots[i].placeName == nil else { return }
+                    self.shots[i].placeName = name
+                    self.persist()
+                }
+            }
+        }
+        if changed { persist() }
+    }
+
+    // MARK: Stamp
+
+    /// The stamp lines for a photo, using the current settings.
+    func stampLines(for shot: Shot) -> [String] {
+        let d = UserDefaults.standard
+        var lines: [String] = []
+        switch shot.shotKind {
+        case .idPhoto: return []
+        case .document: if !d.bool(forKey: Keys.stampDocuments) { return [] }
+        case .photo: break
+        }
+        if d.bool(forKey: Keys.showTime) {
+            lines.append(StampText.timeFormatter.string(from: shot.date))
+        }
+        if d.bool(forKey: Keys.showLocation), let place = shot.placeName, !place.isEmpty {
+            lines.append(place)
+        }
+        return lines
     }
 
     // MARK: PDF
 
     func makePDF(completion: @escaping (URL?) -> Void) {
+        let wantsLocation = UserDefaults.standard.bool(forKey: Keys.showLocation)
+        let locationUsable = !(location?.isDenied ?? true)
+        let missing = shots.contains { needsPlace($0) }
+
+        resolvePlaces()
+        if wantsLocation && locationUsable && missing {
+            // Give the area names a few seconds to arrive.
+            waitingForLocation = true
+            waitForPlaces(until: Date().addingTimeInterval(4)) {
+                self.waitingForLocation = false
+                self.buildPDF(completion: completion)
+            }
+        } else {
+            buildPDF(completion: completion)
+        }
+    }
+
+    /// Only photos (and documents, when they're stamped) need an area name.
+    private func needsPlace(_ shot: Shot) -> Bool {
+        guard shot.placeName == nil else { return false }
+        // A library photo without a saved location will never get one.
+        if shot.imported == true && shot.location == nil { return false }
+        switch shot.shotKind {
+        case .photo: return true
+        case .document: return UserDefaults.standard.bool(forKey: Keys.stampDocuments)
+        case .idPhoto: return false
+        }
+    }
+
+    private func waitForPlaces(until deadline: Date, then done: @escaping () -> Void) {
+        if Date() >= deadline || !shots.contains(where: { needsPlace($0) }) {
+            done()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            self.resolvePlaces()
+            self.waitForPlaces(until: deadline, then: done)
+        }
+    }
+
+    private func buildPDF(completion: @escaping (URL?) -> Void) {
         let included = shots
         let ids = Set(included.map(\.id))
-        let pageSize = PageSize(rawValue: UserDefaults.standard.string(forKey: Keys.pageSize) ?? "") ?? .photo
+        let pages = included.map { PDFPageSource(shot: $0, lines: stampLines(for: $0)) }
+        rememberStampedPlaces(included)
+
+        let d = UserDefaults.standard
+        let style = StampStyle.current()
+        let quality = Quality(rawValue: d.string(forKey: Keys.quality) ?? "") ?? .medium
+        let pageSize = PageSize(rawValue: d.string(forKey: Keys.pageSize) ?? "") ?? .photo
+
+        pdfDone = 0
+        pdfTotal = pages.count
+
         processQueue.async {
-            let url = PDFBuilder.build(included.map(\.data), pageSize: pageSize)
+            let url = PDFBuilder.build(pages, style: style, quality: quality, pageSize: pageSize) { done in
+                DispatchQueue.main.async { self.pdfDone = done }
+            }
             DispatchQueue.main.async {
+                self.pdfTotal = 0
                 if url != nil {
+                    // The PDF is safe; clear this set from the iPhone.
                     self.shots.removeAll { ids.contains($0.id) }
                     self.replaceTarget = nil
+                    ids.forEach { self.removeFiles(for: $0) }
+                    self.persist()
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
                 }
                 completion(url)
             }
         }
+    }
+
+    /// Remembers printed area names so name suggestions can skip them.
+    private func rememberStampedPlaces(_ shots: [Shot]) {
+        let d = UserDefaults.standard
+        var places = d.stringArray(forKey: Keys.stampedPlaces) ?? []
+        for name in shots.compactMap(\.placeName) where !places.contains(name) {
+            places.append(name)
+        }
+        d.set(Array(places.suffix(30)), forKey: Keys.stampedPlaces)
     }
 }
