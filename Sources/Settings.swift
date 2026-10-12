@@ -16,6 +16,8 @@ enum Keys {
     static let pageSize = "pageSize"
     static let shareAfterDone = "shareAfterDone"
     static let flashMode = "flashMode"
+    static let askNameAfterDone = "askNameAfterDone"
+    static let stampedPlaces = "stampedPlaces"
 }
 
 // MARK: - Defaults
@@ -34,7 +36,8 @@ enum Defaults {
             Keys.quality: Quality.medium.rawValue,
             Keys.pageSize: PageSize.photo.rawValue,
             Keys.shareAfterDone: true,
-            Keys.flashMode: FlashMode.auto.rawValue
+            Keys.flashMode: FlashMode.auto.rawValue,
+            Keys.askNameAfterDone: true
         ])
     }
 }

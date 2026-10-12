@@ -171,4 +171,36 @@ enum FileStore {
     static func delete(_ file: PDFFile) {
         try? FileManager.default.removeItem(at: file.url)
     }
+
+    /// Removes characters that can't be in a file name.
+    static func sanitize(_ name: String) -> String {
+        let bad = CharacterSet(charactersIn: "/\\:*?\"<>|")
+            .union(.newlines)
+            .union(.controlCharacters)
+        let cleaned = name
+            .components(separatedBy: bad)
+            .joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespaces))
+        return String(cleaned.prefix(80))
+    }
+
+    /// Renames a PDF. Returns the new URL, or nil if the name is empty or the move fails.
+    static func rename(_ url: URL, to rawName: String) -> URL? {
+        let name = sanitize(rawName)
+        guard !name.isEmpty else { return nil }
+        if name == url.deletingPathExtension().lastPathComponent { return url }
+
+        var target = folder.appendingPathComponent(name).appendingPathExtension("pdf")
+        var n = 2
+        while FileManager.default.fileExists(atPath: target.path) {
+            target = folder.appendingPathComponent("\(name) \(n)").appendingPathExtension("pdf")
+            n += 1
+        }
+        do {
+            try FileManager.default.moveItem(at: url, to: target)
+            return target
+        } catch {
+            return nil
+        }
+    }
 }

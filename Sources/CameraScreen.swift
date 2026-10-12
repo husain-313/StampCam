@@ -11,6 +11,7 @@ struct CameraScreen: View {
 
     @AppStorage(Keys.showLocation) private var showLocation = true
     @AppStorage(Keys.shareAfterDone) private var shareAfterDone = true
+    @AppStorage(Keys.askNameAfterDone) private var askNameAfterDone = true
 
     @State private var sheet: ActiveSheet?
     @State private var toast: String?
@@ -19,13 +20,14 @@ struct CameraScreen: View {
     @State private var isBuilding = false
 
     enum ActiveSheet: Identifiable {
-        case settings, review, files, share(URL)
+        case settings, review, files, share(URL), rename(URL)
         var id: String {
             switch self {
             case .settings: return "settings"
             case .review: return "review"
             case .files: return "files"
             case .share(let url): return "share-\(url.absoluteString)"
+            case .rename(let url): return "rename-\(url.absoluteString)"
             }
         }
     }
@@ -88,6 +90,11 @@ struct CameraScreen: View {
                 ShareSheet(url: url)
                     .presentationDetents([.medium, .large])
                     .ignoresSafeArea()
+            case .rename(let url):
+                RenameSheet(url: url) { finalURL in
+                    sheet = nil
+                    afterSaved(finalURL, delay: 0.5)
+                }
             }
         }
     }
@@ -282,13 +289,24 @@ struct CameraScreen: View {
                 showToast("Couldn't create PDF")
                 return
             }
-            if shareAfterDone {
+            if askNameAfterDone {
                 DispatchQueue.main.asyncAfter(deadline: .now() + (hadSheet ? 0.5 : 0)) {
-                    sheet = .share(url)
+                    sheet = .rename(url)
                 }
             } else {
-                showToast("PDF Saved ✓")
+                afterSaved(url, delay: hadSheet ? 0.5 : 0)
             }
+        }
+    }
+
+    /// After the PDF has its final name: share it or show a confirmation.
+    private func afterSaved(_ url: URL, delay: Double) {
+        if shareAfterDone {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                sheet = .share(url)
+            }
+        } else {
+            showToast("PDF Saved ✓")
         }
     }
 
