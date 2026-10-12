@@ -51,7 +51,8 @@ enum ImageProcessor {
 
     /// Bold text only (no box), with a soft shadow so it stays readable.
     static func drawStamp(_ lines: [String], style: StampStyle, canvas: CGSize) {
-        let fontSize = canvas.width * style.size
+        // Based on the short side, so text is the same size in portrait and landscape.
+        let fontSize = min(canvas.width, canvas.height) * style.size
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = style.position.isLeft ? .left : .right
@@ -104,7 +105,10 @@ enum PDFBuilder {
                         ctx.beginPage(withBounds: rect, pageInfo: [:])
                         image.draw(in: rect)
                     case .a4:
-                        let page = CGRect(origin: .zero, size: a4)
+                        // Landscape photos get a landscape A4 page.
+                        let landscape = image.size.width > image.size.height
+                        let a4Size = landscape ? CGSize(width: a4.height, height: a4.width) : a4
+                        let page = CGRect(origin: .zero, size: a4Size)
                         ctx.beginPage(withBounds: page, pageInfo: [:])
                         image.draw(in: fit(image.size, in: page.insetBy(dx: 20, dy: 20)))
                     }
