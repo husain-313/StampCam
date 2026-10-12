@@ -1,35 +1,44 @@
-# StampCam
+name: Build IPA
 
-تطبيق شخصي للآيفون: تصوير ← Done ← ملف PDF فيه كل الصور، وعلى كل صورة الوقت واسم المنطقة.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
 
-## المزايا
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
 
-- كاميرا بفلاش (Off / Auto / On) وزوم بالأصابع أو بأزرار العدسات (.5 / 1 / 2 / 5).
-- زر الصوت أو زر Camera Control يصوّر بعد.
-- الوقت (24 ساعة) واسم المنطقة على الصورة: نص Bold بدون خلفية، مع ظل خفيف للوضوح.
-- الإعدادات: تشغيل/إيقاف الوقت والموقع، الزاوية، حجم الخط، لون الخط، الجودة، حجم صفحة PDF (حجم الصورة أو A4)، وفتح المشاركة بعد Done.
-- مراجعة الصور قبل الـPDF: حذف أي صورة، إعادة تصوير صورة مكانها، أو إضافة صور جديدة.
-- قائمة ملفات الـPDF داخل التطبيق: فتح، مشاركة، حذف.
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
-## البناء بدون Mac
+      - name: Generate Xcode project
+        run: xcodegen generate
 
-1. ارفع محتوى هذا المجلد إلى مستودع في GitHub (الفرع `main`).
-2. GitHub Actions يبني التطبيق تلقائياً (حوالي 3–5 دقائق).
-3. من تبويب **Actions** ← آخر تشغيل ← **Artifacts** نزّل `StampCam-ipa`.
-4. ارفع `StampCam.ipa` إلى **Signulous** ووقّعه وثبّته.
+      - name: Build (unsigned)
+        run: |
+          xcodebuild \
+            -project StampCam.xcodeproj \
+            -scheme StampCam \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
 
-## الملفات
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/StampCam.app Payload/
+          zip -qr StampCam.ipa Payload
 
-| الملف | المحتوى |
-|---|---|
-| `Sources/StampCamApp.swift` | نقطة بداية التطبيق |
-| `Sources/CameraScreen.swift` | شاشة الكاميرا |
-| `Sources/CameraModel.swift` | الكاميرا، الفلاش، الزوم، التصوير |
-| `Sources/ReviewView.swift` | مراجعة الصور، حذف، إعادة تصوير |
-| `Sources/FilesView.swift` | قائمة ملفات PDF |
-| `Sources/SettingsView.swift` | الإعدادات |
-| `Sources/Settings.swift` | قيم الإعدادات الافتراضية |
-| `Sources/Processing.swift` | ختم الصورة، الضغط، بناء PDF |
-| `Sources/LocationModel.swift` | اسم المنطقة |
-| `project.yml` | إعدادات المشروع والأذونات |
-| `.github/workflows/build.yml` | البناء السحابي |
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: StampCam-ipa
+          path: StampCam.ipa
