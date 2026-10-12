@@ -21,6 +21,7 @@ enum Keys {
     static let stampDocuments = "stampDocuments"
     static let idBackground = "idBackground"
     static let idSize = "idSize"
+    static let use24Hour = "use24Hour"
 }
 
 // MARK: - Defaults
@@ -42,6 +43,7 @@ enum Defaults {
             Keys.flashMode: FlashMode.auto.rawValue,
             Keys.askNameAfterDone: true,
             Keys.stampDocuments: false,
+            Keys.use24Hour: false,
             Keys.idBackground: IDBackground.white.rawValue,
             Keys.idSize: IDSize.passport.rawValue
         ])
