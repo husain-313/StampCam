@@ -98,6 +98,7 @@ enum PDFBuilder {
                       style: StampStyle,
                       quality: Quality,
                       pageSize: PageSize,
+                      onPage: ((Shot, Data) -> Void)? = nil,
                       progress: @escaping (Int) -> Void) -> URL? {
         guard !pages.isEmpty else { return nil }
         let url = FileStore.newFileURL()
@@ -114,6 +115,7 @@ enum PDFBuilder {
                         let compression = page.shot.shotKind == .idPhoto ? max(quality.compression, 0.85) : quality.compression
                         guard let data = rendered.jpegData(compressionQuality: compression),
                               let image = UIImage(data: data) else { return }
+                        onPage?(page.shot, data)      // e.g. also save to Photos
 
                         if page.shot.shotKind == .idPhoto {
                             drawIDPhoto(image, size: page.shot.idSize ?? .passport, pageSize: pageSize, ctx: ctx)

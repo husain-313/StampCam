@@ -231,14 +231,9 @@ struct ShotDetailView: View {
         case .photo:
             EmptyView()
         case .document:
-            Picker("Filter", selection: Binding(
-                get: { shot.filter ?? .original },
-                set: { value in camera.update(shotID) { $0.filter = value } }
-            )) {
-                ForEach(DocFilter.allCases) { Text($0.title).tag($0) }
+            FilterStrip(shotID: shotID, selected: shot.filter ?? .original) { value in
+                camera.update(shotID) { $0.filter = value }
             }
-            .pickerStyle(.segmented)
-            .padding()
         case .idPhoto:
             VStack(spacing: 12) {
                 HStack(spacing: 14) {
@@ -264,6 +259,57 @@ struct ShotDetailView: View {
                 .pickerStyle(.segmented)
             }
             .padding()
+        }
+    }
+}
+
+// MARK: - Filter previews (like a scanner app)
+
+struct FilterStrip: View {
+    let shotID: UUID
+    let selected: DocFilter
+    var onSelect: (DocFilter) -> Void
+
+    @State private var previews: [DocFilter: UIImage] = [:]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(DocFilter.allCases) { filter in
+                    Button { onSelect(filter) } label: {
+                        VStack(spacing: 6) {
+                            ZStack {
+                                Color.white.opacity(0.08)
+                                if let image = previews[filter] {
+                                    Image(uiImage: image).resizable().scaledToFit()
+                                } else {
+                                    ProgressView().controlSize(.small)
+                                }
+                            }
+                            .frame(width: 58, height: 76)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(RoundedRectangle(cornerRadius: 6)
+                                .stroke(filter == selected ? Color.yellow : Color.clear, lineWidth: 2.5))
+                            Text(filter.title)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(filter == selected ? Color.yellow : Color.white)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+        }
+        .task(id: shotID) {
+            let id = shotID
+            let made = await Task.detached(priority: .userInitiated) { () -> [DocFilter: UIImage] in
+                guard let base = SessionStore.thumbnail(id, maxPixel: 240) else { return [:] }
+                var out: [DocFilter: UIImage] = [:]
+                for filter in DocFilter.allCases { out[filter] = DocumentFilters.apply(filter, to: base) }
+                return out
+            }.value
+            previews = made
         }
     }
 }

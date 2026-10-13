@@ -14,6 +14,11 @@ struct CameraScreen: View {
     @AppStorage(Keys.showLocation) private var showLocation = true
     @AppStorage(Keys.shareAfterDone) private var shareAfterDone = true
     @AppStorage(Keys.askNameAfterDone) private var askNameAfterDone = true
+    @AppStorage(Keys.showTime) private var showTime = true
+    @AppStorage(Keys.use24Hour) private var use24Hour = false
+    @AppStorage(Keys.stampPosition) private var stampPosition = StampPosition.bottomRight.rawValue
+    @AppStorage(Keys.stampSize) private var stampSize = Defaults.stampSize
+    @AppStorage(Keys.stampColor) private var stampColor = StampColor.white.rawValue
 
     @State private var sheet: ActiveSheet?
     @State private var toast: String?
@@ -21,6 +26,8 @@ struct CameraScreen: View {
     @State private var pinchStart: CGFloat?
     @State private var isBuilding = false
     @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var mode: ShotKind = .photo
+    @State private var showScanner = false
     @AppStorage("showGrid") private var showGrid = false
     @Environment(\.scenePhase) private var scenePhase
 
@@ -49,14 +56,15 @@ struct CameraScreen: View {
                     .padding(.horizontal, 16)
                     .frame(height: 52)
 
-                ZStack(alignment: .bottom) {
-                    CameraPreview(session: camera.session)
+                CameraPreview(session: camera.session)
                         .frame(maxWidth: .infinity)
                         .aspectRatio(3.0 / 4.0, contentMode: .fit)
                         .clipped()
                         .overlay(Color.black.opacity(blink ? 0.7 : 0).allowsHitTesting(false))
                         .gesture(pinchGesture)
                         .overlay { gridAndLevel }
+                        .overlay { liveStamp }
+                        .overlay { modeGuide }
                         .overlay(alignment: .top) {
                             VStack(spacing: 0) {
                                 appendBanner
@@ -64,15 +72,20 @@ struct CameraScreen: View {
                             }
                         }
                         .overlay { toastView }
-                        .overlay(alignment: .bottomTrailing) { flipButton }
                         .overlay { cameraDeniedView }
 
-                    if camera.zoomPresets.count > 1 {
-                        zoomBar.padding(.bottom, 14)
-                    }
+                // Zoom and front/back below the preview, so nothing covers the stamp.
+                ZStack {
+                    if camera.zoomPresets.count > 1 { zoomBar }
+                    flipButton
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.trailing, 16)
                 }
+                .frame(height: 58)
+                .padding(.top, 6)
 
                 Spacer(minLength: 0)
+                modeBar.padding(.bottom, 10)
                 bottomBar.padding(.horizontal, 28)
                 Spacer(minLength: 0)
             }
@@ -107,6 +120,27 @@ struct CameraScreen: View {
         }
         .onChange(of: location.updateCount) { _, _ in
             camera.resolvePlaces()
+        }
+        .onChange(of: camera.replaceTarget) { _, target in
+            // Retaking an ID photo switches to ID mode, anything else to Photo.
+            guard let target, let shot = camera.shots.first(where: { $0.id == target }) else { return }
+            mode = shot.shotKind == .idPhoto ? .idPhoto : .photo
+        }
+        .fullScreenCover(isPresented: $showScanner) {
+            DocumentScanner { pages in
+                showScanner = false
+                camera.addScannedPages(pages)
+                if !pages.isEmpty {
+                    showToast(pages.count == 1 ? "1 page added" : "\(pages.count) pages added")
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .onChange(of: camera.photoAccessDenied) { _, denied in
+            if denied {
+                camera.photoAccessDenied = false
+                showToast("Allow Photos access in Settings to save there")
+            }
         }
         .onChange(of: pickerItems) { _, items in
             guard !items.isEmpty else { return }
@@ -348,7 +382,104 @@ struct CameraScreen: View {
                 .upright(orientation.iconAngle)
         }
         .accessibilityLabel(camera.isFrontCamera ? "Use back camera" : "Use front camera")
-        .padding(14)
+    }
+
+    // MARK: Modes
+
+    private var modeBar: some View {
+        HStack(spacing: 22) {
+            ForEach(ShotKind.allCases) { kind in
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { mode = kind }
+                } label: {
+                    Text(kind.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .tracking(1)
+                        .foregroundStyle(mode == kind ? Color.yellow : Color.white.opacity(0.7))
+                        .padding(.vertical, 6)
+                }
+            }
+        }
+        .disabled(camera.replaceTarget != nil)
+    }
+
+    /// Face outline for ID photos, or a hint for documents.
+    @ViewBuilder
+    private var modeGuide: some View {
+        if mode == .idPhoto && !camera.cameraDenied {
+            GeometryReader { geo in
+                let w = geo.size.width * 0.5
+                let h = w * 1.3
+                ZStack {
+                    Ellipse()
+                        .stroke(Color.white.opacity(0.85), style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+                        .frame(width: w, height: h)
+                        .position(x: geo.size.width / 2, y: geo.size.height * 0.42)
+                    Text("Fit the face in the outline")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Color.black.opacity(0.5)))
+                        .position(x: geo.size.width / 2, y: geo.size.height * 0.42 + h / 2 + 24)
+                }
+            }
+            .allowsHitTesting(false)
+        } else if mode == .document && !camera.cameraDenied {
+            VStack(spacing: 8) {
+                Image(systemName: "doc.viewfinder")
+                    .font(.system(size: 44))
+                Text("Tap the shutter to scan pages")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(20)
+            .background(RoundedRectangle(cornerRadius: 16).fill(Color.black.opacity(0.5)))
+            .allowsHitTesting(false)
+        }
+    }
+
+    // MARK: Live stamp
+
+    /// The stamp shown live on the camera, exactly where and how it will appear on the photo.
+    @ViewBuilder
+    private var liveStamp: some View {
+        if !camera.cameraDenied && mode == .photo && (showTime || showLocation) {
+            TimelineView(.everyMinute) { context in
+                GeometryReader { geo in
+                    let angle = orientation.iconAngle
+                    let landscape = abs(angle) == 90
+                    // The photo's own width and height (swapped when shooting sideways).
+                    let w = landscape ? geo.size.height : geo.size.width
+                    let h = landscape ? geo.size.width : geo.size.height
+                    let position = StampPosition(rawValue: stampPosition) ?? .bottomRight
+                    let color = StampColor(rawValue: stampColor) ?? .white
+                    let fontSize = min(w, h) * stampSize
+
+                    Text(liveLines(at: context.date).joined(separator: "\n"))
+                        .font(.system(size: fontSize, weight: .bold).monospacedDigit())
+                        .multilineTextAlignment(position.isLeft ? .leading : .trailing)
+                        .lineSpacing(fontSize * 0.15)
+                        .foregroundStyle(color.color)
+                        .shadow(color: color.shadow, radius: fontSize * 0.2)
+                        .shadow(color: color.shadow, radius: fontSize * 0.2)
+                        .padding(fontSize * 0.9)
+                        .frame(width: w, height: h, alignment: position.alignment)
+                        .rotationEffect(.degrees(angle))
+                        .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                }
+            }
+            .allowsHitTesting(false)
+            .animation(.easeInOut(duration: 0.3), value: orientation.iconAngle)
+        }
+    }
+
+    private func liveLines(at date: Date) -> [String] {
+        _ = use24Hour   // refresh when the time format changes
+        var lines: [String] = []
+        if showTime { lines.append(StampText.time(date)) }
+        if showLocation, let place = location.placeName { lines.append(place) }
+        return lines
     }
 
     // MARK: Grid and level
@@ -484,9 +615,17 @@ struct CameraScreen: View {
 
     private func shutter() {
         guard !isBuilding else { return }
+        if mode == .document && camera.replaceTarget == nil {
+            if DocumentScanner.isSupported {
+                showScanner = true
+            } else {
+                showToast("Document scanning isn't available on this device")
+            }
+            return
+        }
 
         let retaking = camera.replaceTarget != nil
-        camera.capture(rotationAngle: orientation.captureAngle)
+        camera.capture(rotationAngle: orientation.captureAngle, kind: mode == .document ? .photo : mode)
 
         blink = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {

@@ -9,6 +9,10 @@ struct SettingsView: View {
 
     @AppStorage(Keys.showTime) private var showTime = true
     @AppStorage(Keys.use24Hour) private var use24Hour = false
+    @AppStorage(Keys.saveToPhotos) private var saveToPhotos = true
+    @AppStorage(Keys.stampDocuments) private var stampDocuments = false
+    @AppStorage(Keys.idBackground) private var idBackground = IDBackground.white.rawValue
+    @AppStorage(Keys.idSize) private var idSize = IDSize.passport.rawValue
     @AppStorage(Keys.showLocation) private var showLocation = true
     @AppStorage(Keys.stampPosition) private var position = StampPosition.bottomRight.rawValue
     @AppStorage(Keys.stampSize) private var stampSize = Defaults.stampSize
@@ -79,6 +83,35 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(!stampOn)
+
+                Section {
+                    Toggle("Stamp Documents", isOn: $stampDocuments)
+                } header: {
+                    Text("Documents")
+                } footer: {
+                    Text("Off: scanned pages stay clean. On: they get the date, time and location like photos. You can pick a filter for each page in the review screen.")
+                }
+
+                Section {
+                    Picker("Background", selection: $idBackground) {
+                        ForEach(IDBackground.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                    Picker("Size", selection: $idSize) {
+                        ForEach(IDSize.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                } header: {
+                    Text("ID Photo")
+                } footer: {
+                    Text("Defaults for new ID photos; you can change each one in the review screen. With A4 page size, the PDF fills a sheet with copies ready to print and cut.")
+                }
+
+                Section {
+                    Toggle("Save to Photos", isOn: $saveToPhotos)
+                } header: {
+                    Text("Photos")
+                } footer: {
+                    Text("When you tap Done, each photo is also saved with its stamp to the StampCam album in the Photos app. Photos you added from your library aren't saved again.")
+                }
 
                 Section {
                     Picker("Quality", selection: $quality) {

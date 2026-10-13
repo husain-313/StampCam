@@ -68,6 +68,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published private(set) var maxZoom: CGFloat = 10
     @Published private(set) var cameraDenied = false
     @Published private(set) var isFrontCamera = false
+    /// Set when saving to Photos was turned on but access isn't allowed.
+    @Published var photoAccessDenied = false
 
     // Status
     @Published private(set) var restoredCount = 0
@@ -298,7 +300,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             shot.idBackground = IDBackground(rawValue: d.string(forKey: Keys.idBackground) ?? "") ?? .white
             shot.idSize = IDSize(rawValue: d.string(forKey: Keys.idSize) ?? "") ?? .passport
         }
-        if slot.kind == .document { shot.filter = .original }
+        if slot.kind == .document { shot.filter = .magic }   // like a scanner app's default
         return shot
     }
 
@@ -550,8 +552,18 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         pdfDone = 0
         pdfTotal = pages.count
 
-        processQueue.async {
-            let url = PDFBuilder.build(pages, style: style, quality: quality, pageSize: pageSize) { done in
+        let run: (Bool?) -> Void = { useAlbum in
+          self.processQueue.async {
+            // Also save each stamped photo to Photos (not ones that came from Photos).
+            let saveToPhotos: ((Shot, Data) -> Void)? = useAlbum.map { album in
+                { shot, data in
+                    if shot.imported != true {
+                        PhotoSaver.save(data, date: shot.date, location: shot.location, useAlbum: album)
+                    }
+                }
+            }
+            let url = PDFBuilder.build(pages, style: style, quality: quality, pageSize: pageSize,
+                                       onPage: saveToPhotos) { done in
                 DispatchQueue.main.async { self.pdfDone = done }
             }
             DispatchQueue.main.async {
@@ -566,6 +578,19 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                 }
                 completion(url)
             }
+          }
+        }
+
+        if d.bool(forKey: Keys.saveToPhotos) {
+            Task {
+                let access = await PhotoSaver.requestAccess()
+                await MainActor.run {
+                    if !access.canSave { self.photoAccessDenied = true }
+                    run(access.canSave ? access.album : nil)
+                }
+            }
+        } else {
+            run(nil)
         }
     }
 
