@@ -46,6 +46,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
 
     // Used only on sessionQueue
     private var device: AVCaptureDevice?
+    private var position: AVCaptureDevice.Position = .back
     private var baseFactor: CGFloat = 1   // device zoom factor that equals "1x"
 
     // The current set (main thread)
@@ -66,6 +67,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published private(set) var minZoom: CGFloat = 1
     @Published private(set) var maxZoom: CGFloat = 10
     @Published private(set) var cameraDenied = false
+    @Published private(set) var isFrontCamera = false
 
     // Status
     @Published private(set) var restoredCount = 0
@@ -139,37 +141,56 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
 
     private func configureIfNeeded() {
         guard device == nil else { return }
+        useCamera(.back)
+    }
 
-        let types: [AVCaptureDevice.DeviceType] = [
-            .builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera
-        ]
-        guard let dev = types.lazy.compactMap({ AVCaptureDevice.default($0, for: .video, position: .back) }).first,
+    /// Switches between the back and front cameras.
+    func toggleCamera() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        sessionQueue.async {
+            let next: AVCaptureDevice.Position = self.position == .back ? .front : .back
+            self.useCamera(next)
+        }
+    }
+
+    /// Runs on sessionQueue: puts the given camera into the session.
+    private func useCamera(_ newPosition: AVCaptureDevice.Position) {
+        let types: [AVCaptureDevice.DeviceType] = newPosition == .back
+            ? [.builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera]
+            : [.builtInWideAngleCamera, .builtInTrueDepthCamera]
+        guard let dev = types.lazy.compactMap({ AVCaptureDevice.default($0, for: .video, position: newPosition) }).first,
               let input = try? AVCaptureDeviceInput(device: dev) else { return }
 
         session.beginConfiguration()
         session.sessionPreset = .photo
+        for old in session.inputs { session.removeInput(old) }
         if session.canAddInput(input) { session.addInput(input) }
         if session.canAddOutput(output) { session.addOutput(output) }
         session.commitConfiguration()
         device = dev
+        position = newPosition
 
-        // Lens buttons (.5, 1, 2, 5) like the built-in Camera app.
+        // Lens buttons (.5, 1, 2, 5) like the built-in Camera app (back camera only).
         let switchOvers = dev.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat(truncating: $0) }
         let hasUltraWide = dev.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
         let hasTele = dev.constituentDevices.contains { $0.deviceType == .builtInTelephotoCamera }
         let base: CGFloat = hasUltraWide ? (switchOvers.first ?? 1) : 1
 
         var presets: [CGFloat] = []
-        if hasUltraWide && base > 1 { presets.append(1 / base) }
-        presets.append(1)
-        presets.append(2)
-        if hasTele, let last = switchOvers.last {
-            let tele = (last / base).rounded()
-            if tele > 2 { presets.append(tele) }
+        if newPosition == .back {
+            if hasUltraWide && base > 1 { presets.append(1 / base) }
+            presets.append(1)
+            presets.append(2)
+            if hasTele, let last = switchOvers.last {
+                let tele = (last / base).rounded()
+                if tele > 2 { presets.append(tele) }
+            }
+        } else {
+            presets = [1]
         }
 
         let minDisplay = dev.minAvailableVideoZoomFactor / base
-        let maxDisplay = min(dev.maxAvailableVideoZoomFactor / base, 25)
+        let maxDisplay = min(dev.maxAvailableVideoZoomFactor / base, newPosition == .back ? 25 : 5)
 
         do {
             try dev.lockForConfiguration()
@@ -183,6 +204,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             self.minZoom = minDisplay
             self.maxZoom = maxDisplay
             self.zoom = 1
+            self.isFrontCamera = newPosition == .front
         }
     }
 
