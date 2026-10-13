@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2
+- **Tap text in your photos to name the PDF.** The Name PDF screen now shows your photos with every piece of text highlighted. Tap any of it (a shop sign, a number, a name) and it becomes the file name. Swipe to see more photos.
+- Smart suggestions and your note are still listed below.
+
+
 ## 2.1
 - **Date and Time are separate switches.** Show both, only the date, or only the time. (Your old "Date & Time" choice is kept.)
 - **Removed the cover page.** PDFs start straight with your photos. Page numbers and photo notes stay.

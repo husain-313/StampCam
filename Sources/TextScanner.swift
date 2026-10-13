@@ -7,13 +7,24 @@ import Vision
 import PDFKit
 
 enum TextScanner {
-    static func suggestions(for url: URL, maxPages: Int = 3) async -> [String] {
-        await Task.detached(priority: .userInitiated) {
-            TextScanner.scan(url, maxPages: maxPages)
-        }.value
+    /// One line of text found in a photo, for tapping in the rename screen.
+    struct Line: Identifiable {
+        let id = UUID()
+        let text: String
+        /// Normalized (0...1), origin top-left, like the screen.
+        let box: CGRect
     }
 
-    private struct Found {
+    /// One PDF page with its picture and the text lines found on it.
+    struct Page: Identifiable {
+        let id: Int            // page index in the PDF
+        let image: UIImage
+        let lines: [Line]
+        /// Raw results, used for the name suggestions.
+        let found: [Found]
+    }
+
+    struct Found {
         let text: String
         let box: CGRect         // normalized, origin bottom-left (Vision)
         let confidence: Float
@@ -21,24 +32,49 @@ enum TextScanner {
         var merged = false
     }
 
+    /// Number of pages in the PDF (0 if it can't be opened).
+    static func pageCount(_ url: URL) -> Int {
+        PDFDocument(url: url)?.pageCount ?? 0
+    }
+
+    /// Reads the text on one page. Nil for pages without a photo (like an old cover page).
+    static func readPage(_ url: URL, index: Int) async -> Page? {
+        await Task.detached(priority: .userInitiated) {
+            TextScanner.read(url, index: index)
+        }.value
+    }
+
+    /// Best file names from the text found on some pages.
+    static func suggestions(from found: [Found]) -> [String] {
+        rank(found)
+    }
+
     // MARK: Reading
 
-    private static func scan(_ url: URL, maxPages: Int) -> [String] {
-        guard let document = PDFDocument(url: url) else { return [] }
-        var found: [Found] = []
-        var scanned = 0
-        for index in 0..<document.pageCount where scanned < maxPages {
-            guard let page = document.page(at: index) else { continue }
-            // Skip StampCam's own cover page (it's real text, not a photo).
-            if page.string?.contains(PDFBuilder.coverMark) == true { continue }
-            scanned += 1
-            let bounds = page.bounds(for: .mediaBox)
-            let scale = 1800 / max(bounds.width, bounds.height)
-            let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
-            guard let image = page.thumbnail(of: size, for: .mediaBox).cgImage else { continue }
-            found += recognize(image, page: index)
-        }
-        return rank(found)
+    private static func read(_ url: URL, index: Int) -> Page? {
+        guard let document = PDFDocument(url: url), let page = document.page(at: index) else { return nil }
+        // Skip the cover page that version 2.0 added (it's real text, not a photo).
+        if page.string?.contains(PDFBuilder.coverMark) == true { return nil }
+
+        let bounds = page.bounds(for: .mediaBox)
+        let longest = max(bounds.width, bounds.height)
+        guard longest > 0 else { return nil }
+        let readSize = CGSize(width: bounds.width * 1800 / longest, height: bounds.height * 1800 / longest)
+        guard let image = page.thumbnail(of: readSize, for: .mediaBox).cgImage else { return nil }
+        let found = recognize(image, page: index)
+
+        // A smaller copy to show on screen.
+        let showSize = CGSize(width: bounds.width * 900 / longest, height: bounds.height * 900 / longest)
+        let shown = page.thumbnail(of: showSize, for: .mediaBox)
+
+        let lines = found
+            .filter { !$0.text.isEmpty && $0.confidence >= 0.3 }
+            .map { item in
+                Line(text: String(item.text.prefix(80)),
+                     box: CGRect(x: item.box.minX, y: 1 - item.box.maxY,
+                                 width: item.box.width, height: item.box.height))
+            }
+        return Page(id: index, image: shown, lines: lines, found: found)
     }
 
     private static func recognize(_ image: CGImage, page: Int) -> [Found] {
