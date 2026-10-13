@@ -64,6 +64,7 @@ struct CameraScreen: View {
                             }
                         }
                         .overlay { toastView }
+                        .overlay(alignment: .bottomTrailing) { flipButton }
                         .overlay { cameraDeniedView }
 
                     if camera.zoomPresets.count > 1 {
@@ -333,6 +334,21 @@ struct CameraScreen: View {
                     .offset(x: 10, y: -10)
             }
         }
+    }
+
+    // MARK: Front / back camera
+
+    private var flipButton: some View {
+        Button { camera.toggleCamera() } label: {
+            Image(systemName: "arrow.triangle.2.circlepath.camera")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(Color.black.opacity(0.45)))
+                .upright(orientation.iconAngle)
+        }
+        .accessibilityLabel(camera.isFrontCamera ? "Use back camera" : "Use front camera")
+        .padding(14)
     }
 
     // MARK: Grid and level
