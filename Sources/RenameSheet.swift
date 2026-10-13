@@ -80,7 +80,7 @@ struct RenameSheet: View {
                 } header: {
                     Label("Smart Suggestions", systemImage: "sparkles")
                 } footer: {
-                    Text("Read from the text in your photos, like a shop sign. Everything stays on your iPhone.")
+                    Text("Your note, and text read from your photos like a shop sign. Everything stays on your iPhone.")
                 }
             }
             .navigationTitle("Name PDF")
@@ -96,7 +96,15 @@ struct RenameSheet: View {
                 }
             }
             .task {
-                suggestions = await TextScanner.suggestions(for: url)
+                var found = await TextScanner.suggestions(for: url)
+                // The note from Settings is usually the best name, so it comes first.
+                let note = StampText.note
+                if !note.isEmpty {
+                    let key = TextScanner.normalize(note)
+                    found.removeAll { TextScanner.normalize($0) == key }
+                    found.insert(note, at: 0)
+                }
+                suggestions = found
                 scanning = false
             }
         }

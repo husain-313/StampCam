@@ -8,6 +8,8 @@ import CoreLocation
 struct PhotoInfo {
     var date: Date?
     var coordinate: CLLocationCoordinate2D?
+    /// Direction the camera faced, when the photo saved it.
+    var heading: Double?
 
     static func read(_ data: Data) -> PhotoInfo {
         var info = PhotoInfo()
@@ -33,6 +35,10 @@ struct PhotoInfo {
             if (gps[kCGImagePropertyGPSLatitudeRef] as? String) == "S" { lat = -lat }
             if (gps[kCGImagePropertyGPSLongitudeRef] as? String) == "W" { lon = -lon }
             info.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+        if let gps = props[kCGImagePropertyGPSDictionary] as? [CFString: Any],
+           let direction = gps[kCGImagePropertyGPSImgDirection] as? Double {
+            info.heading = direction
         }
         return info
     }

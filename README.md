@@ -8,7 +8,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 
 ## How it works
 
-1. **Shoot** — take photos, scan documents or make ID photos, or add some from your library.
+1. **Shoot** — take photos, or add some from your library.
 2. **Tap Done** — all photos are combined into one PDF instantly.
 3. **Name & share** — pick a name (StampCam suggests one from the text in your photos) and send it anywhere.
 
@@ -21,29 +21,20 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 - Zoom with two fingers or tap the lens buttons (.5×, 1×, 2×, 5×)
 - Take photos with the volume buttons or the Camera Control button
 - Front and back cameras
+- **Tap to focus**, then slide up or down to make the photo brighter or darker
 - Shoot in portrait or landscape — photos and the stamp are always upright
 - Grid lines and a level to keep shots straight
 
 ### 🕒 Date, time & location on every photo
 - Date and time in 12-hour (AM/PM) or 24-hour format
 - Area name (for example: *Riffa, Bahrain*)
+- **Note line** — like a project or client name — on every photo
+- **GPS coordinates** and **compass direction** (which way the camera faced)
 - Clean bold text — no box, with a soft shadow so it's easy to read on any photo
 - See the stamp live on the camera while you shoot
 - Turn each one on or off, and choose the corner, text size and color
 - If the location isn't ready yet, StampCam adds it to those photos as soon as it is
 - Change the stamp settings anytime — they apply to the whole set when you tap Done
-
-### 📄 Document mode (beta)
-- Scan papers with Apple's document scanner: edges found automatically, straightened and cropped
-- Filters for each page: Magic (removes shadows and creases), No Shadow, Original, Enhanced, Grayscale, Black & White
-- Mix photos and documents in the same PDF
-- Pages stay clean, or turn on the stamp for documents too
-
-### 🪪 ID Photo mode (beta)
-- Face outline to frame the shot
-- Background replaced automatically: white, light gray, light blue or blue
-- Cropped to 35 × 45 mm, 40 × 60 mm or 2 × 2 in, with the face centered
-- Print at real size, or fill an A4 sheet with copies ready to cut
 
 ### 🖼️ Review before saving
 - See all your photos before making the PDF
@@ -51,6 +42,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 - Retake a photo — the new one goes in the same spot
 - Add more photos at any time
 - Press and drag to change the order
+- **Add a note** to any photo — it's printed under the photo in the PDF
 - Add photos from your library — they keep their own date and location
 - Your photos are saved as you shoot — close the app or restart your phone and pick up where you left off
 
@@ -70,7 +62,15 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 ### ⚙️ Settings
 - Photo quality: High, Medium or Small (smaller = smaller PDF)
 - PDF page size: fit to the photo, or A4 with margins for printing
+- **Cover page** with the date, places and a preview of all photos
+- **Page numbers**
 - Ask for a name after Done, and open the share sheet automatically
+
+---
+
+## What's new
+
+See **[CHANGELOG.md](CHANGELOG.md)** for what changed in each version.
 
 ---
 

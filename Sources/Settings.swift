@@ -18,17 +18,21 @@ enum Keys {
     static let flashMode = "flashMode"
     static let askNameAfterDone = "askNameAfterDone"
     static let stampedPlaces = "stampedPlaces"
-    static let stampDocuments = "stampDocuments"
-    static let idBackground = "idBackground"
-    static let idSize = "idSize"
     static let use24Hour = "use24Hour"
     static let saveToPhotos = "saveToPhotos"
+    // 2.0
+    static let stampNote = "stampNote"
+    static let showCoordinates = "showCoordinates"
+    static let showHeading = "showHeading"
+    static let coverPage = "coverPage"
+    static let pageNumbers = "pageNumbers"
 }
 
 // MARK: - Defaults
 
 enum Defaults {
     static let stampSize: Double = 0.035
+    static let noteLimit = 60
     static let stampSizeRange: ClosedRange<Double> = 0.02...0.07
 
     static func register() {
@@ -43,11 +47,13 @@ enum Defaults {
             Keys.shareAfterDone: true,
             Keys.flashMode: FlashMode.auto.rawValue,
             Keys.askNameAfterDone: true,
-            Keys.stampDocuments: false,
             Keys.use24Hour: false,
             Keys.saveToPhotos: true,
-            Keys.idBackground: IDBackground.white.rawValue,
-            Keys.idSize: IDSize.passport.rawValue
+            Keys.stampNote: "",
+            Keys.showCoordinates: false,
+            Keys.showHeading: false,
+            Keys.coverPage: true,
+            Keys.pageNumbers: true
         ])
     }
 }

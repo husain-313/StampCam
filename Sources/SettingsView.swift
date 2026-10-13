@@ -2,6 +2,7 @@
 //  Stamp, quality and PDF options, with a live preview of the stamp.
 
 import SwiftUI
+import CoreLocation
 
 struct SettingsView: View {
     /// Current area name, used in the preview.
@@ -10,9 +11,6 @@ struct SettingsView: View {
     @AppStorage(Keys.showTime) private var showTime = true
     @AppStorage(Keys.use24Hour) private var use24Hour = false
     @AppStorage(Keys.saveToPhotos) private var saveToPhotos = true
-    @AppStorage(Keys.stampDocuments) private var stampDocuments = false
-    @AppStorage(Keys.idBackground) private var idBackground = IDBackground.white.rawValue
-    @AppStorage(Keys.idSize) private var idSize = IDSize.passport.rawValue
     @AppStorage(Keys.showLocation) private var showLocation = true
     @AppStorage(Keys.stampPosition) private var position = StampPosition.bottomRight.rawValue
     @AppStorage(Keys.stampSize) private var stampSize = Defaults.stampSize
@@ -21,16 +19,24 @@ struct SettingsView: View {
     @AppStorage(Keys.pageSize) private var pageSize = PageSize.photo.rawValue
     @AppStorage(Keys.shareAfterDone) private var shareAfterDone = true
     @AppStorage(Keys.askNameAfterDone) private var askNameAfterDone = true
+    @AppStorage(Keys.stampNote) private var stampNote = ""
+    @AppStorage(Keys.showCoordinates) private var showCoordinates = false
+    @AppStorage(Keys.showHeading) private var showHeading = false
+    @AppStorage(Keys.coverPage) private var coverPage = true
+    @AppStorage(Keys.pageNumbers) private var pageNumbers = true
 
     @Environment(\.dismiss) private var dismiss
 
-    private var stampOn: Bool { showTime || showLocation }
+    private var stampOn: Bool {
+        showTime || showLocation || showCoordinates || showHeading
+            || !stampNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     private var previewLines: [String] {
-        var lines: [String] = []
-        if showTime { lines.append(StampText.time(Date())) }
-        if showLocation { lines.append(locationName ?? "Area, Country") }
-        return lines
+        _ = (showTime, use24Hour, showLocation, showCoordinates, showHeading, stampNote)   // refresh on change
+        return StampText.lines(date: Date(), place: locationName ?? "Area, Country",
+                               coordinate: CLLocationCoordinate2D(latitude: 26.12912, longitude: 50.55503),
+                               heading: 225)
     }
 
     var body: some View {
@@ -50,14 +56,20 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    TextField("Note (e.g. project or client name)", text: $stampNote)
+                        .onChange(of: stampNote) { _, value in
+                            if value.count > Defaults.noteLimit { stampNote = String(value.prefix(Defaults.noteLimit)) }
+                        }
                     Toggle("Date & Time", isOn: $showTime)
                     Toggle("24-Hour Time", isOn: $use24Hour)
                         .disabled(!showTime)
-                    Toggle("Location", isOn: $showLocation)
+                    Toggle("Area Name", isOn: $showLocation)
+                    Toggle("GPS Coordinates", isOn: $showCoordinates)
+                    Toggle("Compass Direction", isOn: $showHeading)
                 } header: {
                     Text("On the Photo")
                 } footer: {
-                    Text("Stamp settings apply to all photos in the set when you tap Done, even ones you already took.")
+                    Text("The note is printed on every photo and used as the PDF's title. Compass direction shows which way the camera faced (like SW 225°). Stamp settings apply to all photos in the set when you tap Done, even ones you already took.")
                 }
 
                 Section("Text") {
@@ -85,27 +97,6 @@ struct SettingsView: View {
                 .disabled(!stampOn)
 
                 Section {
-                    Toggle("Stamp Documents", isOn: $stampDocuments)
-                } header: {
-                    Text("Documents")
-                } footer: {
-                    Text("Off: scanned pages stay clean. On: they get the date, time and location like photos. You can pick a filter for each page in the review screen.")
-                }
-
-                Section {
-                    Picker("Background", selection: $idBackground) {
-                        ForEach(IDBackground.allCases) { Text($0.title).tag($0.rawValue) }
-                    }
-                    Picker("Size", selection: $idSize) {
-                        ForEach(IDSize.allCases) { Text($0.title).tag($0.rawValue) }
-                    }
-                } header: {
-                    Text("ID Photo")
-                } footer: {
-                    Text("Defaults for new ID photos; you can change each one in the review screen. With A4 page size, the PDF fills a sheet with copies ready to print and cut.")
-                }
-
-                Section {
                     Toggle("Save to Photos", isOn: $saveToPhotos)
                 } header: {
                     Text("Photos")
@@ -128,18 +119,22 @@ struct SettingsView: View {
                     Picker("Page Size", selection: $pageSize) {
                         ForEach(PageSize.allCases) { Text($0.title).tag($0.rawValue) }
                     }
+                    Toggle("Cover Page", isOn: $coverPage)
+                    Toggle("Page Numbers", isOn: $pageNumbers)
                     Toggle("Name File After Done", isOn: $askNameAfterDone)
                     Toggle("Share After Done", isOn: $shareAfterDone)
                 } header: {
                     Text("PDF")
                 } footer: {
                     Text("Fit to Photo: each page has the photo's shape, no margins. A4: standard paper with white margins, best for printing.\n\n"
+                         + "Cover page: a first page with the date, places and a preview of all photos. Notes you add to photos are printed under them.\n\n"
                          + (askNameAfterDone
                             ? "After Done you can name the PDF, with smart suggestions from the text in your photos. You can always rename later from the folder button."
                             : "PDFs are named by date. You can rename them anytime from the folder button."))
                 }
             }
             .navigationTitle("Settings")
+            .tint(.yellow)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
