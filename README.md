@@ -35,7 +35,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 
 ### 📄 Document mode (beta)
 - Scan papers with Apple's document scanner: edges found automatically, straightened and cropped
-- Filters for each page: Original, Enhanced, Grayscale, Black & White
+- Filters for each page: Magic (removes shadows and creases), No Shadow, Original, Enhanced, Grayscale, Black & White
 - Mix photos and documents in the same PDF
 - Pages stay clean, or turn on the stamp for documents too
 
