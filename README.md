@@ -26,7 +26,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 - Grid lines and a level to keep shots straight
 
 ### 🕒 Date, time & location on every photo
-- Date and time in 12-hour (AM/PM) or 24-hour format
+- Date and time — together, or just one of them — in 12-hour (AM/PM) or 24-hour format
 - Area name (for example: *Riffa, Bahrain*)
 - **Note line** — like a project or client name — on every photo
 - **GPS coordinates** and **compass direction** (which way the camera faced)
@@ -62,7 +62,6 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 ### ⚙️ Settings
 - Photo quality: High, Medium or Small (smaller = smaller PDF)
 - PDF page size: fit to the photo, or A4 with margins for printing
-- **Cover page** with the date, places and a preview of all photos
 - **Page numbers**
 - Ask for a name after Done, and open the share sheet automatically
 

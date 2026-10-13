@@ -7,6 +7,7 @@ import UIKit
 // MARK: - Keys
 
 enum Keys {
+    static let showDate = "showDate"
     static let showTime = "showTime"
     static let showLocation = "showLocation"
     static let stampPosition = "stampPosition"
@@ -24,7 +25,6 @@ enum Keys {
     static let stampNote = "stampNote"
     static let showCoordinates = "showCoordinates"
     static let showHeading = "showHeading"
-    static let coverPage = "coverPage"
     static let pageNumbers = "pageNumbers"
 }
 
@@ -36,7 +36,13 @@ enum Defaults {
     static let stampSizeRange: ClosedRange<Double> = 0.02...0.07
 
     static func register() {
-        UserDefaults.standard.register(defaults: [
+        let d = UserDefaults.standard
+        // Before 2.1 one switch ("Date & Time") showed both; keep the same choice for the date.
+        if d.object(forKey: Keys.showDate) == nil, d.object(forKey: Keys.showTime) != nil {
+            d.set(d.bool(forKey: Keys.showTime), forKey: Keys.showDate)
+        }
+        d.register(defaults: [
+            Keys.showDate: true,
             Keys.showTime: true,
             Keys.showLocation: true,
             Keys.stampPosition: StampPosition.bottomRight.rawValue,
@@ -52,7 +58,6 @@ enum Defaults {
             Keys.stampNote: "",
             Keys.showCoordinates: false,
             Keys.showHeading: false,
-            Keys.coverPage: true,
             Keys.pageNumbers: true
         ])
     }

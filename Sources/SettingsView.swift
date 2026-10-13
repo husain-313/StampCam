@@ -8,6 +8,7 @@ struct SettingsView: View {
     /// Current area name, used in the preview.
     let locationName: String?
 
+    @AppStorage(Keys.showDate) private var showDate = true
     @AppStorage(Keys.showTime) private var showTime = true
     @AppStorage(Keys.use24Hour) private var use24Hour = false
     @AppStorage(Keys.saveToPhotos) private var saveToPhotos = true
@@ -22,18 +23,17 @@ struct SettingsView: View {
     @AppStorage(Keys.stampNote) private var stampNote = ""
     @AppStorage(Keys.showCoordinates) private var showCoordinates = false
     @AppStorage(Keys.showHeading) private var showHeading = false
-    @AppStorage(Keys.coverPage) private var coverPage = true
     @AppStorage(Keys.pageNumbers) private var pageNumbers = true
 
     @Environment(\.dismiss) private var dismiss
 
     private var stampOn: Bool {
-        showTime || showLocation || showCoordinates || showHeading
+        showDate || showTime || showLocation || showCoordinates || showHeading
             || !stampNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var previewLines: [String] {
-        _ = (showTime, use24Hour, showLocation, showCoordinates, showHeading, stampNote)   // refresh on change
+        _ = (showDate, showTime, use24Hour, showLocation, showCoordinates, showHeading, stampNote)   // refresh on change
         return StampText.lines(date: Date(), place: locationName ?? "Area, Country",
                                coordinate: CLLocationCoordinate2D(latitude: 26.12912, longitude: 50.55503),
                                heading: 225)
@@ -60,7 +60,8 @@ struct SettingsView: View {
                         .onChange(of: stampNote) { _, value in
                             if value.count > Defaults.noteLimit { stampNote = String(value.prefix(Defaults.noteLimit)) }
                         }
-                    Toggle("Date & Time", isOn: $showTime)
+                    Toggle("Date", isOn: $showDate)
+                    Toggle("Time", isOn: $showTime)
                     Toggle("24-Hour Time", isOn: $use24Hour)
                         .disabled(!showTime)
                     Toggle("Area Name", isOn: $showLocation)
@@ -69,7 +70,7 @@ struct SettingsView: View {
                 } header: {
                     Text("On the Photo")
                 } footer: {
-                    Text("The note is printed on every photo and used as the PDF's title. Compass direction shows which way the camera faced (like SW 225°). Stamp settings apply to all photos in the set when you tap Done, even ones you already took.")
+                    Text("The note is printed on every photo and suggested as the PDF's name. Turn Date and Time on together or on their own. Compass direction shows which way the camera faced (like SW 225°). Stamp settings apply to all photos in the set when you tap Done, even ones you already took.")
                 }
 
                 Section("Text") {
@@ -119,7 +120,6 @@ struct SettingsView: View {
                     Picker("Page Size", selection: $pageSize) {
                         ForEach(PageSize.allCases) { Text($0.title).tag($0.rawValue) }
                     }
-                    Toggle("Cover Page", isOn: $coverPage)
                     Toggle("Page Numbers", isOn: $pageNumbers)
                     Toggle("Name File After Done", isOn: $askNameAfterDone)
                     Toggle("Share After Done", isOn: $shareAfterDone)
@@ -127,7 +127,7 @@ struct SettingsView: View {
                     Text("PDF")
                 } footer: {
                     Text("Fit to Photo: each page has the photo's shape, no margins. A4: standard paper with white margins, best for printing.\n\n"
-                         + "Cover page: a first page with the date, places and a preview of all photos. Notes you add to photos are printed under them.\n\n"
+                         + "Notes you add to photos are printed under them.\n\n"
                          + (askNameAfterDone
                             ? "After Done you can name the PDF, with smart suggestions from the text in your photos. You can always rename later from the folder button."
                             : "PDFs are named by date. You can rename them anytime from the folder button."))

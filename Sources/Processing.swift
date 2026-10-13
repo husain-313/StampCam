@@ -14,18 +14,22 @@ enum StampText {
         f.dateFormat = format
         return f
     }
-    private static let twelveHour = formatter("yyyy-MM-dd  h:mm a")     // 1:05 PM
-    private static let twentyFourHour = formatter("yyyy-MM-dd  HH:mm")  // 13:05
+    private static let dateOnlyStamp = formatter("yyyy-MM-dd")
 
     private static let dayOnly = formatter("d MMM yyyy")                // 13 Oct 2026
     private static let clock12 = formatter("h:mm a")
     private static let clock24 = formatter("HH:mm")
 
-    /// Date and time for the stamp, in 12-hour (AM/PM) or 24-hour format.
-    static func time(_ date: Date) -> String {
-        UserDefaults.standard.bool(forKey: Keys.use24Hour)
-            ? twentyFourHour.string(from: date)
-            : twelveHour.string(from: date)
+    /// Date and/or time for the stamp, depending on the settings ("2026-10-13  1:05 PM").
+    /// Nil when both are off.
+    static func dateTime(_ date: Date) -> String? {
+        let d = UserDefaults.standard
+        var parts: [String] = []
+        if d.bool(forKey: Keys.showDate) { parts.append(dateOnlyStamp.string(from: date)) }
+        if d.bool(forKey: Keys.showTime) {
+            parts.append((d.bool(forKey: Keys.use24Hour) ? clock24 : clock12).string(from: date))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "  ")
     }
 
     /// "26.12345° N  50.55512° E"
@@ -52,7 +56,7 @@ enum StampText {
     /// True when at least one stamp line is turned on.
     static var isOn: Bool {
         let d = UserDefaults.standard
-        return d.bool(forKey: Keys.showTime) || d.bool(forKey: Keys.showLocation)
+        return d.bool(forKey: Keys.showDate) || d.bool(forKey: Keys.showTime) || d.bool(forKey: Keys.showLocation)
             || d.bool(forKey: Keys.showCoordinates) || d.bool(forKey: Keys.showHeading)
             || !note.isEmpty
     }
@@ -65,7 +69,7 @@ enum StampText {
         var lines: [String] = []
         let noteText = StampText.note
         if !noteText.isEmpty { lines.append(noteText) }
-        if d.bool(forKey: Keys.showTime), let date { lines.append(time(date)) }
+        if let date, let stamp = dateTime(date) { lines.append(stamp) }
         if d.bool(forKey: Keys.showLocation), let place, !place.isEmpty { lines.append(place) }
         var extra: [String] = []
         if d.bool(forKey: Keys.showCoordinates), let coordinate { extra.append(coordinates(coordinate)) }
@@ -162,17 +166,7 @@ struct PDFPageSource {
     let lines: [String]
 }
 
-/// The first page of the PDF: a short summary of the set.
-struct PDFCover {
-    let title: String
-    let dateText: String
-    let places: [String]
-    let photoCount: Int
-    let thumbnailIDs: [UUID]
-}
-
 struct PDFOptions {
-    var cover: PDFCover? = nil
     var pageNumbers = false
     /// Number of the first photo page (higher when adding to an existing PDF).
     var firstNumber = 1
@@ -181,9 +175,8 @@ struct PDFOptions {
 
 enum PDFBuilder {
     static let a4 = CGSize(width: 595.2, height: 841.8)
-    /// Printed in the cover page footer; also how the cover is recognized later.
+    /// Printed on the cover page of PDFs made with version 2.0 (so name suggestions can skip it).
     static let coverMark = "Made with StampCam"
-    private static let accent = UIColor(red: 1.0, green: 0.80, blue: 0.0, alpha: 1)
 
     /// Builds the PDF from the saved photos. The stamp, quality and page size
     /// are applied here, so the latest settings always count.
@@ -201,9 +194,6 @@ enum PDFBuilder {
 
         do {
             try renderer.writePDF(to: url) { ctx in
-                if let cover = options.cover {
-                    autoreleasepool { drawCover(cover, ctx: ctx) }
-                }
                 for (index, page) in pages.enumerated() {
                     autoreleasepool {
                         guard let rendered = ShotRenderer.render(page.shot, lines: page.lines,
@@ -328,113 +318,8 @@ enum PDFBuilder {
         text.draw(at: CGPoint(x: pill.minX + 8, y: pill.minY + 3))
     }
 
-    // MARK: Cover page
-
-    private static func drawCover(_ cover: PDFCover, ctx: UIGraphicsPDFRendererContext) {
-        let page = CGRect(origin: .zero, size: a4)
-        ctx.beginPage(withBounds: page, pageInfo: [:])
-        UIColor.white.setFill()
-        UIRectFill(page)
-
-        let margin: CGFloat = 48
-        let width = page.width - margin * 2
-        var y: CGFloat = 60
-
-        accent.setFill()
-        UIBezierPath(roundedRect: CGRect(x: margin, y: y, width: 44, height: 6), cornerRadius: 3).fill()
-        y += 24
-
-        y = draw("PHOTO REPORT", font: .systemFont(ofSize: 10, weight: .bold),
-                 color: UIColor(white: 0.5, alpha: 1), kern: 2, x: margin, y: y, width: width)
-        y += 6
-        y = draw(cover.title, font: .systemFont(ofSize: 30, weight: .heavy),
-                 color: UIColor(white: 0.08, alpha: 1), x: margin, y: y, width: width)
-        y += 28
-
-        // Summary rows
-        var rows: [(String, String)] = []
-        if !cover.dateText.isEmpty { rows.append(("DATE", cover.dateText)) }
-        if !cover.places.isEmpty { rows.append(("LOCATION", cover.places.joined(separator: "\n"))) }
-        rows.append(("PHOTOS", cover.photoCount == 1 ? "1 photo" : "\(cover.photoCount) photos"))
-
-        for (label, value) in rows {
-            UIColor(white: 0.9, alpha: 1).setFill()
-            UIRectFill(CGRect(x: margin, y: y, width: width, height: 0.7))
-            y += 12
-            let labelBottom = draw(label, font: .systemFont(ofSize: 9, weight: .bold),
-                                   color: UIColor(white: 0.55, alpha: 1), kern: 1.5, x: margin, y: y + 2, width: 100)
-            let valueBottom = draw(value, font: .systemFont(ofSize: 14, weight: .medium),
-                                   color: UIColor(white: 0.1, alpha: 1), x: margin + 110, y: y, width: width - 110)
-            y = max(labelBottom, valueBottom) + 12
-        }
-        UIColor(white: 0.9, alpha: 1).setFill()
-        UIRectFill(CGRect(x: margin, y: y, width: width, height: 0.7))
-        y += 28
-
-        // Photo overview
-        let footerTop = page.height - 60
-        let columns = 4
-        let gap: CGFloat = 10
-        let cell = (width - gap * CGFloat(columns - 1)) / CGFloat(columns)
-        let cellHeight = cell * 4 / 3
-        let maxRows = max(0, Int((footerTop - 24 - y + gap) / (cellHeight + gap)))
-        let shown = Array(cover.thumbnailIDs.prefix(maxRows * columns))
-        if let cg = UIGraphicsGetCurrentContext() {
-            for (i, id) in shown.enumerated() {
-                let rect = CGRect(x: margin + CGFloat(i % columns) * (cell + gap),
-                                  y: y + CGFloat(i / columns) * (cellHeight + gap),
-                                  width: cell, height: cellHeight)
-                let path = UIBezierPath(roundedRect: rect, cornerRadius: 8)
-                UIColor(white: 0.94, alpha: 1).setFill()
-                path.fill()
-                guard let thumb = SessionStore.thumbnail(id, maxPixel: 400) else { continue }
-                cg.saveGState()
-                path.addClip()
-                thumb.draw(in: fill(thumb.size, in: rect))
-                cg.restoreGState()
-            }
-        }
-        let hidden = cover.thumbnailIDs.count - shown.count
-        if hidden > 0 && !shown.isEmpty {
-            let usedRows = (shown.count + columns - 1) / columns
-            _ = draw("+ \(hidden) more", font: .systemFont(ofSize: 11, weight: .semibold),
-                     color: UIColor(white: 0.45, alpha: 1),
-                     x: margin, y: y + CGFloat(usedRows) * (cellHeight + gap), width: width)
-        }
-
-        // Footer
-        UIColor(white: 0.9, alpha: 1).setFill()
-        UIRectFill(CGRect(x: margin, y: footerTop, width: width, height: 0.7))
-        _ = draw("\(coverMark) · \(StampText.time(Date()))",
-                 font: .systemFont(ofSize: 9, weight: .medium),
-                 color: UIColor(white: 0.55, alpha: 1), x: margin, y: footerTop + 12, width: width)
-    }
-
-    /// Draws text and returns the y just below it.
-    @discardableResult
-    private static func draw(_ string: String, font: UIFont, color: UIColor, kern: CGFloat = 0,
-                             x: CGFloat, y: CGFloat, width: CGFloat) -> CGFloat {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = font.pointSize * 0.2
-        paragraph.baseWritingDirection = .natural
-        let text = NSAttributedString(string: string, attributes: [
-            .font: font, .foregroundColor: color, .kern: kern, .paragraphStyle: paragraph
-        ])
-        let height = textHeight(text, width: width)
-        text.draw(with: CGRect(x: x, y: y, width: width, height: height),
-                  options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-        return y + height
-    }
-
     private static func fit(_ size: CGSize, in rect: CGRect) -> CGRect {
         let s = min(rect.width / size.width, rect.height / size.height)
-        let w = size.width * s
-        let h = size.height * s
-        return CGRect(x: rect.midX - w / 2, y: rect.midY - h / 2, width: w, height: h)
-    }
-
-    private static func fill(_ size: CGSize, in rect: CGRect) -> CGRect {
-        let s = max(rect.width / size.width, rect.height / size.height)
         let w = size.width * s
         let h = size.height * s
         return CGRect(x: rect.midX - w / 2, y: rect.midY - h / 2, width: w, height: h)
