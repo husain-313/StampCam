@@ -13,8 +13,8 @@ enum StampText {
         f.dateFormat = format
         return f
     }
-    private static let twelveHour = formatter("yyyy-MM-dd  h:mm:ss a")     // 1:05:30 PM
-    private static let twentyFourHour = formatter("yyyy-MM-dd  HH:mm:ss")  // 13:05:30
+    private static let twelveHour = formatter("yyyy-MM-dd  h:mm a")     // 1:05 PM
+    private static let twentyFourHour = formatter("yyyy-MM-dd  HH:mm")  // 13:05
 
     /// Date and time for the stamp, in 12-hour (AM/PM) or 24-hour format.
     static func time(_ date: Date) -> String {
