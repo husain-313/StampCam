@@ -14,6 +14,7 @@ struct CameraScreen: View {
     @AppStorage(Keys.showLocation) private var showLocation = true
     @AppStorage(Keys.shareAfterDone) private var shareAfterDone = true
     @AppStorage(Keys.askNameAfterDone) private var askNameAfterDone = true
+    @AppStorage(Keys.showDate) private var showDate = true
     @AppStorage(Keys.showTime) private var showTime = true
     @AppStorage(Keys.use24Hour) private var use24Hour = false
     @AppStorage(Keys.stampPosition) private var stampPosition = StampPosition.bottomRight.rawValue
@@ -520,12 +521,12 @@ struct CameraScreen: View {
     }
 
     private var stampVisible: Bool {
-        showTime || showLocation || showCoordinates || showHeading
+        showDate || showTime || showLocation || showCoordinates || showHeading
             || !stampNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func liveLines(at date: Date) -> [String] {
-        _ = (use24Hour, stampNote, showTime, showLocation, showCoordinates, showHeading)   // refresh when settings change
+        _ = (use24Hour, stampNote, showDate, showTime, showLocation, showCoordinates, showHeading)   // refresh when settings change
         return StampText.lines(date: date, place: location.placeName,
                                coordinate: location.current?.coordinate, heading: location.heading)
     }

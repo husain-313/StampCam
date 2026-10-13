@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1
+- **Date and Time are separate switches.** Show both, only the date, or only the time. (Your old "Date & Time" choice is kept.)
+- **Removed the cover page.** PDFs start straight with your photos. Page numbers and photo notes stay.
+
+
 ## 2.0
 A cleaner, more focused StampCam: one great camera mode instead of three.
 

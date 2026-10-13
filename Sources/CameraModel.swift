@@ -557,19 +557,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         let quality = Quality(rawValue: d.string(forKey: Keys.quality) ?? "") ?? .medium
         let pageSize = PageSize(rawValue: d.string(forKey: Keys.pageSize) ?? "") ?? .photo
         let appendingTo = appendTarget
-        let wantsCover = d.bool(forKey: Keys.coverPage)
         let wantsNumbers = d.bool(forKey: Keys.pageNumbers)
-        var places: [String] = []
-        for name in included.compactMap(\.placeName) where !name.isEmpty && !places.contains(name) {
-            places.append(name)
-        }
-        let note = StampText.note
-        let cover = PDFCover(title: note.isEmpty ? "Photos" : note,
-                             dateText: StampText.dateRange(included.map(\.date)),
-                             places: Array(places.prefix(4)),
-                             photoCount: included.count,
-                             thumbnailIDs: included.map(\.id))
-
         pdfDone = 0
         pdfTotal = pages.count
 
@@ -583,10 +571,9 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                     }
                 }
             }
-            // Adding to an existing PDF: no second cover, and numbers carry on.
+            // Adding to an existing PDF: page numbers carry on.
             let existing = appendingTo.flatMap { PDFDocument(url: $0)?.pageCount } ?? 0
             var options = PDFOptions()
-            options.cover = (wantsCover && appendingTo == nil) ? cover : nil
             options.pageNumbers = wantsNumbers
             options.firstNumber = existing + 1
             options.totalNumber = existing + pages.count
