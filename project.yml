@@ -6,10 +6,10 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.6.1"
-    CURRENT_PROJECT_VERSION: "8"
+    MARKETING_VERSION: "2.0"
+    CURRENT_PROJECT_VERSION: "10"
     # Name shown in GitHub Releases (the app itself shows MARKETING_VERSION).
-    STAMPCAM_RELEASE: "1.6.1"
+    STAMPCAM_RELEASE: "2.0"
 targets:
   StampCam:
     type: application

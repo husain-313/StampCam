@@ -26,8 +26,12 @@ enum TextScanner {
     private static func scan(_ url: URL, maxPages: Int) -> [String] {
         guard let document = PDFDocument(url: url) else { return [] }
         var found: [Found] = []
-        for index in 0..<min(document.pageCount, maxPages) {
+        var scanned = 0
+        for index in 0..<document.pageCount where scanned < maxPages {
             guard let page = document.page(at: index) else { continue }
+            // Skip StampCam's own cover page (it's real text, not a photo).
+            if page.string?.contains(PDFBuilder.coverMark) == true { continue }
+            scanned += 1
             let bounds = page.bounds(for: .mediaBox)
             let scale = 1800 / max(bounds.width, bounds.height)
             let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
@@ -120,11 +124,19 @@ enum TextScanner {
 
     private static func isUsable(_ item: Found) -> Bool {
         let text = item.text
-        guard text.count >= 2, item.confidence >= 0.3 else { return false }
+        guard text.count >= 2, item.confidence >= 0.5 else { return false }
 
         let scalars = text.unicodeScalars.filter { !CharacterSet.whitespaces.contains($0) }
         let letters = scalars.filter { CharacterSet.letters.contains($0) }.count
         guard !scalars.isEmpty, Double(letters) / Double(scalars.count) >= 0.5 else { return false }
+
+        // Arabic and English letters mixed in one line is usually misread handwriting.
+        let hasArabic = isArabic(text)
+        let hasLatin = text.unicodeScalars.contains { ("a"..."z").contains($0) || ("A"..."Z").contains($0) }
+        if hasArabic && hasLatin { return false }
+
+        // English lines: most words should be real words or names (drops scribbles read as text).
+        if hasLatin && !looksLikeEnglish(text) { return false }
 
         // Skip our own stamp: the date/time and area names printed on the photos.
         if text.range(of: #"\d{1,4}[-/:.]\d{1,2}[-/:.]\d{1,4}"#, options: .regularExpression) != nil { return false }
@@ -139,6 +151,23 @@ enum TextScanner {
         text.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
+    }
+
+    private static func looksLikeEnglish(_ text: String) -> Bool {
+        let words = text.split(whereSeparator: { !$0.isLetter }).map(String.init).filter { $0.count >= 3 }
+        guard words.count >= 2 else { return true }      // short names and single words are fine
+        // UIKit's spell checker is used on the main thread to be safe.
+        let check = { () -> Int in
+            let checker = UITextChecker()
+            return words.filter { word in
+                if word.first?.isUppercase == true { return true }    // names, brands
+                let range = NSRange(location: 0, length: (word as NSString).length)
+                return checker.rangeOfMisspelledWord(in: word, range: range, startingAt: 0,
+                                                     wrap: false, language: "en").location == NSNotFound
+            }.count
+        }
+        let good = Thread.isMainThread ? check() : DispatchQueue.main.sync(execute: check)
+        return Double(good) / Double(words.count) >= 0.5
     }
 
     private static func isArabic(_ text: String) -> Bool {

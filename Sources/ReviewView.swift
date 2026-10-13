@@ -1,5 +1,5 @@
 //  ReviewView.swift
-//  Review the current set before the PDF: delete, retake, or go back to add more.
+//  Review the current set before the PDF: delete, retake, add notes, or go back to add more.
 
 import SwiftUI
 
@@ -14,6 +14,8 @@ struct ReviewView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
+              VStack(spacing: 0) {
+                if !camera.shots.isEmpty { summary.padding([.horizontal, .top]) }
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(Array(camera.shots.enumerated()), id: \.element.id) { index, shot in
                         NavigationLink(value: shot.id) {
@@ -45,15 +47,32 @@ struct ReviewView: View {
                     }
                 }
                 .padding()
+              }
             }
             .safeAreaInset(edge: .bottom) {
-                if camera.shots.count > 1 {
-                    Text("Press and drag a photo to change the order.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity)
-                        .background(.bar)
+                if !camera.shots.isEmpty {
+                    VStack(spacing: 8) {
+                        if camera.shots.count > 1 {
+                            Text("Press and drag a photo to change the order. Tap one to add a note.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        Button { onCreatePDF() } label: {
+                            Label("Create PDF", systemImage: "doc.richtext.fill")
+                                .font(.headline)
+                                .foregroundStyle(.black)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 52)
+                                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.yellow))
+                        }
+                        .disabled(camera.pendingCount > 0)
+                        .opacity(camera.pendingCount > 0 ? 0.5 : 1)
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
+                    .background(.bar)
                 }
             }
             .overlay {
@@ -77,13 +96,30 @@ struct ReviewView: View {
                             .labelStyle(.titleAndIcon)
                     }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create PDF") { onCreatePDF() }
-                        .bold()
-                        .disabled(camera.shots.isEmpty || camera.pendingCount > 0)
-                }
             }
         }
+    }
+
+    /// Short summary of the set: how many photos, when and where.
+    private var summary: some View {
+        let places = Array(Set(camera.shots.compactMap(\.placeName).filter { !$0.isEmpty })).sorted()
+        return VStack(alignment: .leading, spacing: 6) {
+            Label(StampText.dateRange(camera.shots.map(\.date)), systemImage: "calendar")
+            if !places.isEmpty {
+                Label(places.count == 1 ? places[0] : "\(places[0]) + \(places.count - 1) more",
+                      systemImage: "mappin.and.ellipse")
+                    .lineLimit(1)
+            }
+            let notes = camera.shots.filter { $0.note != nil }.count
+            if notes > 0 {
+                Label(notes == 1 ? "1 note" : "\(notes) notes", systemImage: "text.bubble")
+            }
+        }
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
     }
 
     private func cell(_ shot: Shot, number: Int) -> some View {
@@ -101,7 +137,7 @@ struct ReviewView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 // Location still being found for this photo.
-                if shot.placeName == nil && shot.shotKind == .photo && !(shot.imported == true && shot.location == nil) && UserDefaults.standard.bool(forKey: Keys.showLocation) {
+                if shot.placeName == nil && !(shot.imported == true && shot.location == nil) && UserDefaults.standard.bool(forKey: Keys.showLocation) {
                     Image(systemName: "location.slash.fill")
                         .font(.caption2)
                         .foregroundStyle(.white)
@@ -110,7 +146,17 @@ struct ReviewView: View {
                         .padding(6)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(alignment: .bottomLeading) {
+                if shot.note != nil {
+                    Image(systemName: "text.bubble.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.black)
+                        .padding(5)
+                        .background(Circle().fill(Color.yellow))
+                        .padding(6)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(alignment: .topLeading) {
                 Text("\(number)")
                     .font(.caption.bold().monospacedDigit())
@@ -125,7 +171,7 @@ struct ReviewView: View {
                         Color.black.opacity(0.5)
                         ProgressView().tint(.white)
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
             }
     }
@@ -141,27 +187,19 @@ struct ShotDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var image: UIImage?
     @State private var confirmDelete = false
+    @State private var editingNote = false
+    @State private var noteDraft = ""
 
     private var index: Int? { camera.shots.firstIndex { $0.id == shotID } }
 
     private var shot: Shot? { index.map { camera.shots[$0] } }
 
-    /// Re-render the preview when the area name or the shot's options change.
+    /// Re-render the preview when the area name arrives.
     private var previewKey: String {
-        guard let shot else { return "none" }
-        return [shot.placeName ?? "pending",
-                shot.filter?.rawValue ?? "",
-                shot.idBackground?.rawValue ?? "",
-                shot.idSize?.rawValue ?? ""].joined(separator: "|")
+        shot?.placeName ?? (shot == nil ? "none" : "pending")
     }
 
-    private var noun: String {
-        switch shot?.shotKind {
-        case .document: return "Page"
-        case .idPhoto: return "ID Photo"
-        default: return "Photo"
-        }
-    }
+    private let noun = "Photo"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -179,8 +217,22 @@ struct ShotDetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if let shot {
-                options(for: shot)
+            if let note = shot?.note {
+                Button { startEditingNote() } label: {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "text.bubble.fill").foregroundStyle(.yellow)
+                        Text(note)
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.subheadline)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.1)))
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
             }
         }
         .background(Color.black.ignoresSafeArea())
@@ -188,13 +240,18 @@ struct ShotDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .bottomBar) {
-                if shot?.shotKind != .document {
-                    Button {
-                        onRetake()
-                    } label: {
-                        Label("Retake", systemImage: "arrow.triangle.2.circlepath.camera")
-                            .labelStyle(.titleAndIcon)
-                    }
+                Button {
+                    onRetake()
+                } label: {
+                    Label("Retake", systemImage: "arrow.triangle.2.circlepath.camera")
+                        .labelStyle(.titleAndIcon)
+                }
+                Spacer()
+                Button {
+                    startEditingNote()
+                } label: {
+                    Label(shot?.note == nil ? "Add Note" : "Edit Note", systemImage: "text.bubble")
+                        .labelStyle(.titleAndIcon)
                 }
                 Spacer()
                 Button(role: .destructive) {
@@ -212,6 +269,16 @@ struct ShotDetailView: View {
                 dismiss()
             }
         }
+        .alert("Note", isPresented: $editingNote) {
+            TextField("Printed under the photo in the PDF", text: $noteDraft)
+            Button("Save") { camera.setNote(shotID, noteDraft) }
+            if shot?.note != nil {
+                Button("Remove", role: .destructive) { camera.setNote(shotID, "") }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("A short note, like what the photo shows. It's printed under the photo in the PDF.")
+        }
         .task(id: previewKey) {
             // Shows the shot exactly as it will appear in the PDF.
             guard let shot else { return }
@@ -223,93 +290,8 @@ struct ShotDetailView: View {
         }
     }
 
-    // MARK: Per-shot options
-
-    @ViewBuilder
-    private func options(for shot: Shot) -> some View {
-        switch shot.shotKind {
-        case .photo:
-            EmptyView()
-        case .document:
-            FilterStrip(shotID: shotID, selected: shot.filter ?? .original) { value in
-                camera.update(shotID) { $0.filter = value }
-            }
-        case .idPhoto:
-            VStack(spacing: 12) {
-                HStack(spacing: 14) {
-                    ForEach(IDBackground.allCases) { bg in
-                        Button {
-                            camera.update(shotID) { $0.idBackground = bg }
-                        } label: {
-                            Circle()
-                                .fill(Color(uiColor: bg.uiColor))
-                                .frame(width: 34, height: 34)
-                                .overlay(Circle().stroke((shot.idBackground ?? .white) == bg ? Color.yellow : Color.gray,
-                                                         lineWidth: (shot.idBackground ?? .white) == bg ? 3 : 1))
-                        }
-                        .accessibilityLabel(bg.title)
-                    }
-                }
-                Picker("Size", selection: Binding(
-                    get: { shot.idSize ?? .passport },
-                    set: { value in camera.update(shotID) { $0.idSize = value } }
-                )) {
-                    ForEach(IDSize.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
-            .padding()
-        }
-    }
-}
-
-// MARK: - Filter previews (like a scanner app)
-
-struct FilterStrip: View {
-    let shotID: UUID
-    let selected: DocFilter
-    var onSelect: (DocFilter) -> Void
-
-    @State private var previews: [DocFilter: UIImage] = [:]
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(DocFilter.allCases) { filter in
-                    Button { onSelect(filter) } label: {
-                        VStack(spacing: 6) {
-                            ZStack {
-                                Color.white.opacity(0.08)
-                                if let image = previews[filter] {
-                                    Image(uiImage: image).resizable().scaledToFit()
-                                } else {
-                                    ProgressView().controlSize(.small)
-                                }
-                            }
-                            .frame(width: 58, height: 76)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .overlay(RoundedRectangle(cornerRadius: 6)
-                                .stroke(filter == selected ? Color.yellow : Color.clear, lineWidth: 2.5))
-                            Text(filter.title)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(filter == selected ? Color.yellow : Color.white)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
-        }
-        .task(id: shotID) {
-            let id = shotID
-            let made = await Task.detached(priority: .userInitiated) { () -> [DocFilter: UIImage] in
-                guard let base = SessionStore.thumbnail(id, maxPixel: 240) else { return [:] }
-                var out: [DocFilter: UIImage] = [:]
-                for filter in DocFilter.allCases { out[filter] = DocumentFilters.apply(filter, to: base) }
-                return out
-            }.value
-            previews = made
-        }
+    private func startEditingNote() {
+        noteDraft = shot?.note ?? ""
+        editingNote = true
     }
 }

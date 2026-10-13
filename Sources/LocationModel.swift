@@ -13,6 +13,9 @@ final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate
     @Published private(set) var authorization: CLAuthorizationStatus = .notDetermined
     /// Goes up whenever a new location or name arrives (used to fill in photos taken without one).
     @Published private(set) var updateCount = 0
+    /// Compass direction the camera is facing, in degrees from north (only while wanted).
+    @Published private(set) var heading: Double?
+    private var headingWanted = false
 
     private var cache: [(location: CLLocation, name: String)] = []
     private var waiting: [String: [(String?) -> Void]] = [:]
@@ -33,10 +36,36 @@ final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate
             manager.requestWhenInUseAuthorization()
         }
         manager.startUpdatingLocation()
+        updateHeading()
     }
 
     func stop() {
         manager.stopUpdatingLocation()
+        manager.stopUpdatingHeading()
+    }
+
+    // MARK: Compass
+
+    /// Turns the compass on or off (it's only used when the direction is on the stamp).
+    func setHeadingWanted(_ on: Bool) {
+        headingWanted = on
+        updateHeading()
+    }
+
+    /// Which way the phone is held, so the direction is the one the camera faces.
+    func setHeadingOrientation(_ orientation: CLDeviceOrientation) {
+        if manager.headingOrientation != orientation { manager.headingOrientation = orientation }
+    }
+
+    private func updateHeading() {
+        guard CLLocationManager.headingAvailable() else { return }
+        if headingWanted {
+            manager.headingFilter = 2
+            manager.startUpdatingHeading()
+        } else {
+            manager.stopUpdatingHeading()
+            heading = nil
+        }
     }
 
     // MARK: Names
@@ -97,6 +126,11 @@ final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate
                   let now = self.current, now.distance(from: location) < 150 else { return }
             self.placeName = name
         }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        guard headingWanted, newHeading.headingAccuracy >= 0 else { return }
+        heading = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

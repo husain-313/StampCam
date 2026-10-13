@@ -5,6 +5,7 @@
 import Foundation
 import CoreMotion
 import CoreGraphics
+import CoreLocation
 
 final class DeviceOrientation: ObservableObject {
     enum Hold {
@@ -65,6 +66,16 @@ final class DeviceOrientation: ObservableObject {
         case .portraitUpsideDown: return 270
         case .landscapeLeft: return 0
         case .landscapeRight: return 180
+        }
+    }
+
+    /// For the compass, so the direction is the way the camera faces.
+    var headingOrientation: CLDeviceOrientation {
+        switch hold {
+        case .portrait: return .portrait
+        case .portraitUpsideDown: return .portraitUpsideDown
+        case .landscapeLeft: return .landscapeLeft
+        case .landscapeRight: return .landscapeRight
         }
     }
 

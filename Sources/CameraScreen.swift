@@ -19,6 +19,9 @@ struct CameraScreen: View {
     @AppStorage(Keys.stampPosition) private var stampPosition = StampPosition.bottomRight.rawValue
     @AppStorage(Keys.stampSize) private var stampSize = Defaults.stampSize
     @AppStorage(Keys.stampColor) private var stampColor = StampColor.white.rawValue
+    @AppStorage(Keys.stampNote) private var stampNote = ""
+    @AppStorage(Keys.showCoordinates) private var showCoordinates = false
+    @AppStorage(Keys.showHeading) private var showHeading = false
 
     @State private var sheet: ActiveSheet?
     @State private var toast: String?
@@ -26,8 +29,10 @@ struct CameraScreen: View {
     @State private var pinchStart: CGFloat?
     @State private var isBuilding = false
     @State private var pickerItems: [PhotosPickerItem] = []
-    @State private var mode: ShotKind = .photo
-    @State private var showScanner = false
+    @State private var focusPoint: CGPoint?
+    @State private var focusHide: DispatchWorkItem?
+    @State private var biasStart: Float?
+    @State private var thumbBounce = false
     @AppStorage("showGrid") private var showGrid = false
     @Environment(\.scenePhase) private var scenePhase
 
@@ -46,6 +51,8 @@ struct CameraScreen: View {
 
     private var totalCount: Int { camera.shots.count + camera.pendingCount }
     private var canFinish: Bool { !camera.shots.isEmpty && camera.pendingCount == 0 && !isBuilding }
+    /// Location is needed for the area name, the coordinates or the direction.
+    private var needsLocation: Bool { showLocation || showCoordinates || showHeading }
 
     var body: some View {
         ZStack {
@@ -56,15 +63,17 @@ struct CameraScreen: View {
                     .padding(.horizontal, 16)
                     .frame(height: 52)
 
-                CameraPreview(session: camera.session)
+                CameraPreview(session: camera.session) { layer in camera.previewLayer = layer }
                         .frame(maxWidth: .infinity)
                         .aspectRatio(3.0 / 4.0, contentMode: .fit)
                         .clipped()
-                        .overlay(Color.black.opacity(blink ? 0.7 : 0).allowsHitTesting(false))
                         .gesture(pinchGesture)
+                        .simultaneousGesture(focusTap)
+                        .simultaneousGesture(brightnessDrag)
+                        .overlay(Color.black.opacity(blink ? 0.7 : 0).allowsHitTesting(false))
                         .overlay { gridAndLevel }
                         .overlay { liveStamp }
-                        .overlay { modeGuide }
+                        .overlay { focusIndicator }
                         .overlay(alignment: .top) {
                             VStack(spacing: 0) {
                                 appendBanner
@@ -73,10 +82,15 @@ struct CameraScreen: View {
                         }
                         .overlay { toastView }
                         .overlay { cameraDeniedView }
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .padding(.horizontal, 4)
 
-                // Zoom and front/back below the preview, so nothing covers the stamp.
+                // Brightness, zoom and front/back below the preview, so nothing covers the stamp.
                 ZStack {
                     if camera.zoomPresets.count > 1 { zoomBar }
+                    brightnessChip
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 16)
                     flipButton
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .padding(.trailing, 16)
@@ -85,7 +99,6 @@ struct CameraScreen: View {
                 .padding(.top, 6)
 
                 Spacer(minLength: 0)
-                modeBar.padding(.bottom, 10)
                 bottomBar.padding(.horizontal, 28)
                 Spacer(minLength: 0)
             }
@@ -104,7 +117,8 @@ struct CameraScreen: View {
             case .active:
                 camera.start()
                 orientation.start()
-                if showLocation { location.start() }
+                location.setHeadingWanted(showHeading)
+                if needsLocation { location.start() }
                 UIApplication.shared.isIdleTimerDisabled = true    // keep the screen on while shooting
             case .background:
                 camera.stop()
@@ -115,26 +129,28 @@ struct CameraScreen: View {
                 break
             }
         }
-        .onChange(of: showLocation) { _, on in
+        .onChange(of: needsLocation) { _, on in
             if on { location.start() } else { location.stop() }
+        }
+        .onChange(of: showHeading) { _, on in
+            location.setHeadingWanted(on)
+        }
+        .onChange(of: orientation.hold, initial: true) { _, _ in
+            location.setHeadingOrientation(orientation.headingOrientation)
+        }
+        .onChange(of: camera.focusResetCount) { _, _ in
+            focusHide?.cancel()
+            withAnimation(.easeOut(duration: 0.25)) { focusPoint = nil }
+        }
+        .onChange(of: camera.shots.count) { old, new in
+            guard new > old else { return }
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.5)) { thumbBounce = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { thumbBounce = false }
+            }
         }
         .onChange(of: location.updateCount) { _, _ in
             camera.resolvePlaces()
-        }
-        .onChange(of: camera.replaceTarget) { _, target in
-            // Retaking an ID photo switches to ID mode, anything else to Photo.
-            guard let target, let shot = camera.shots.first(where: { $0.id == target }) else { return }
-            mode = shot.shotKind == .idPhoto ? .idPhoto : .photo
-        }
-        .fullScreenCover(isPresented: $showScanner) {
-            DocumentScanner { pages in
-                showScanner = false
-                camera.addScannedPages(pages)
-                if !pages.isEmpty {
-                    showToast(pages.count == 1 ? "1 page added" : "\(pages.count) pages added")
-                }
-            }
-            .ignoresSafeArea()
         }
         .onChange(of: camera.photoAccessDenied) { _, denied in
             if denied {
@@ -191,48 +207,38 @@ struct CameraScreen: View {
     // MARK: Top bar
 
     private var topBar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 8) {
             Button { camera.flash = camera.flash.next } label: {
-                Image(systemName: camera.flash.icon)
-                    .font(.title3)
-                    .foregroundStyle(camera.flash == .on ? Color.yellow : Color.white)
-                    .frame(width: 44, height: 44)
-                    .upright(orientation.iconAngle)
+                barIcon(camera.flash.icon, active: camera.flash == .on)
             }
+            .accessibilityLabel("Flash")
             Button { showGrid.toggle() } label: {
-                Image(systemName: "squareshape.split.3x3")
-                    .font(.title3)
-                    .foregroundStyle(showGrid ? Color.yellow : Color.white)
-                    .frame(width: 40, height: 44)
-                    .upright(orientation.iconAngle)
+                barIcon("squareshape.split.3x3", active: showGrid)
             }
             .accessibilityLabel("Grid and level")
             Spacer(minLength: 4)
             if showLocation { locationPill }
             Spacer(minLength: 4)
             PhotosPicker(selection: $pickerItems, maxSelectionCount: 30, matching: .images) {
-                Image(systemName: "photo.on.rectangle")
-                    .font(.title3)
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 44)
-                    .upright(orientation.iconAngle)
+                barIcon("photo.on.rectangle")
             }
             .accessibilityLabel("Add from Photos")
-            Button { sheet = .files } label: {
-                Image(systemName: "folder")
-                    .font(.title3)
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .upright(orientation.iconAngle)
-            }
-            Button { sheet = .settings } label: {
-                Image(systemName: "gearshape")
-                    .font(.title3)
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .upright(orientation.iconAngle)
-            }
+            Button { sheet = .files } label: { barIcon("folder") }
+                .accessibilityLabel("Your PDFs")
+            Button { sheet = .settings } label: { barIcon("gearshape") }
+                .accessibilityLabel("Settings")
         }
+    }
+
+    /// Round, softly lit icon button used across the top bar.
+    private func barIcon(_ name: String, active: Bool = false) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(active ? Color.black : Color.white)
+            .frame(width: 38, height: 38)
+            .background(Circle().fill(active ? Color.yellow : Color.white.opacity(0.12)))
+            .upright(orientation.iconAngle)
+            .animation(.easeOut(duration: 0.15), value: active)
     }
 
     // MARK: Location status
@@ -255,8 +261,8 @@ struct CameraScreen: View {
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(location.isDenied ? Color.orange : Color.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .frame(height: 30)
             .background(Capsule().fill(Color.white.opacity(0.12)))
         }
         .disabled(!location.isDenied)
@@ -292,13 +298,13 @@ struct CameraScreen: View {
                         .font(.system(size: selected ? 13 : 12, weight: .bold))
                         .foregroundStyle(selected ? Color.yellow : Color.white)
                         .frame(width: selected ? 40 : 32, height: selected ? 40 : 32)
-                        .background(Circle().fill(Color.black.opacity(0.5)))
+                        .background(Circle().fill(Color.white.opacity(selected ? 0.16 : 0.08)))
                         .upright(orientation.iconAngle)
                 }
             }
         }
         .padding(5)
-        .background(Capsule().fill(Color.black.opacity(0.25)))
+        .background(Capsule().fill(Color.white.opacity(0.06)))
         .animation(.easeOut(duration: 0.15), value: selectedPreset)
     }
 
@@ -315,33 +321,39 @@ struct CameraScreen: View {
         HStack {
             Button { sheet = .review } label: { thumbnail.upright(orientation.iconAngle) }
                 .disabled(totalCount == 0)
+                .frame(width: 80, alignment: .leading)
 
             Spacer()
 
             Button { shutter() } label: {
                 ZStack {
-                    Circle().stroke(Color.white, lineWidth: 4).frame(width: 80, height: 80)
-                    Circle().fill(Color.white).frame(width: 66, height: 66)
+                    Circle().stroke(Color.white, lineWidth: 4).frame(width: 78, height: 78)
+                    Circle().fill(Color.white).frame(width: 64, height: 64)
                 }
             }
             .buttonStyle(ShutterStyle())
             .disabled(isBuilding)
+            .accessibilityLabel("Take Photo")
 
             Spacer()
 
             Button { createPDF() } label: {
                 Group {
                     if isBuilding {
-                        ProgressView().tint(.white)
+                        ProgressView().tint(.black)
                     } else {
-                        Text("Done").font(.headline)
+                        Text("Done")
+                            .font(.system(size: 16, weight: .bold))
                     }
                 }
-                .foregroundStyle(canFinish ? Color.yellow : Color.gray)
-                .frame(width: 60, height: 60)
+                .foregroundStyle(canFinish ? Color.black : Color.white.opacity(0.35))
+                .frame(width: 76, height: 44)
+                .background(Capsule().fill(canFinish || isBuilding ? Color.yellow : Color.white.opacity(0.1)))
                 .upright(orientation.iconAngle)
+                .animation(.easeOut(duration: 0.2), value: canFinish)
             }
             .disabled(!canFinish)
+            .frame(width: 80, alignment: .trailing)
         }
     }
 
@@ -351,12 +363,12 @@ struct CameraScreen: View {
                 if let last = camera.shots.last, let thumb = camera.thumbnails[last.id] {
                     Image(uiImage: thumb).resizable().scaledToFill()
                 } else {
-                    Color.white.opacity(0.12)
+                    Color.white.opacity(0.1)
                 }
             }
-            .frame(width: 60, height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.8), lineWidth: 2))
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.85), lineWidth: 1.5))
 
             if totalCount > 0 {
                 Text("\(totalCount)")
@@ -365,8 +377,96 @@ struct CameraScreen: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(Color.yellow))
-                    .offset(x: 10, y: -10)
+                    .offset(x: 9, y: -9)
+                    .contentTransition(.numericText())
+                    .animation(.snappy, value: totalCount)
             }
+        }
+        .scaleEffect(thumbBounce ? 1.12 : 1)
+    }
+
+    // MARK: Brightness
+
+    /// Shows the brightness when it isn't automatic; tap to go back to automatic.
+    @ViewBuilder
+    private var brightnessChip: some View {
+        if camera.exposureBias != 0 {
+            Button { camera.setExposureBias(0) } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "sun.max.fill")
+                    Text(String(format: "%+.1f", camera.exposureBias)).monospacedDigit()
+                }
+                .font(.caption.bold())
+                .foregroundStyle(.yellow)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(Capsule().fill(Color.white.opacity(0.1)))
+                .upright(orientation.iconAngle)
+            }
+            .accessibilityLabel("Brightness. Tap to reset")
+            .transition(.opacity)
+        }
+    }
+
+    // MARK: Tap to focus
+
+    private var focusTap: some Gesture {
+        SpatialTapGesture()
+            .onEnded { value in
+                guard !camera.cameraDenied else { return }
+                camera.focus(atPreviewPoint: value.location)
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { focusPoint = value.location }
+                scheduleFocusHide()
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            }
+    }
+
+    /// After tapping, slide up or down to make the picture brighter or darker.
+    private var brightnessDrag: some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                guard focusPoint != nil, pinchStart == nil else { return }
+                if biasStart == nil {
+                    biasStart = camera.exposureBias
+                    focusHide?.cancel()
+                }
+                let delta = Float(-value.translation.height / 120)
+                camera.setExposureBias((biasStart ?? 0) + delta)
+            }
+            .onEnded { _ in
+                guard biasStart != nil else { return }
+                biasStart = nil
+                scheduleFocusHide()
+            }
+    }
+
+    private func scheduleFocusHide() {
+        focusHide?.cancel()
+        let work = DispatchWorkItem {
+            withAnimation(.easeOut(duration: 0.3)) { focusPoint = nil }
+        }
+        focusHide = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
+    }
+
+    /// Yellow focus square with a sun that moves with the brightness.
+    @ViewBuilder
+    private var focusIndicator: some View {
+        if let point = focusPoint {
+            HStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.yellow, lineWidth: 1.5)
+                    .frame(width: 74, height: 74)
+                Image(systemName: "sun.max.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.yellow)
+                    .offset(y: CGFloat(-camera.exposureBias) * 18)
+                    .frame(height: 74)
+            }
+            .shadow(color: .black.opacity(0.4), radius: 2)
+            .position(x: point.x + 11, y: point.y)
+            .allowsHitTesting(false)
+            .transition(.opacity.combined(with: .scale(scale: 1.25)))
         }
     }
 
@@ -374,69 +474,14 @@ struct CameraScreen: View {
 
     private var flipButton: some View {
         Button { camera.toggleCamera() } label: {
-            Image(systemName: "arrow.triangle.2.circlepath.camera")
-                .font(.system(size: 18, weight: .semibold))
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
-                .background(Circle().fill(Color.black.opacity(0.45)))
+                .background(Circle().fill(Color.white.opacity(0.12)))
                 .upright(orientation.iconAngle)
         }
         .accessibilityLabel(camera.isFrontCamera ? "Use back camera" : "Use front camera")
-    }
-
-    // MARK: Modes
-
-    private var modeBar: some View {
-        HStack(spacing: 22) {
-            ForEach(ShotKind.allCases) { kind in
-                Button {
-                    withAnimation(.easeOut(duration: 0.15)) { mode = kind }
-                } label: {
-                    Text(kind.title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .tracking(1)
-                        .foregroundStyle(mode == kind ? Color.yellow : Color.white.opacity(0.7))
-                        .padding(.vertical, 6)
-                }
-            }
-        }
-        .disabled(camera.replaceTarget != nil)
-    }
-
-    /// Face outline for ID photos, or a hint for documents.
-    @ViewBuilder
-    private var modeGuide: some View {
-        if mode == .idPhoto && !camera.cameraDenied {
-            GeometryReader { geo in
-                let w = geo.size.width * 0.5
-                let h = w * 1.3
-                ZStack {
-                    Ellipse()
-                        .stroke(Color.white.opacity(0.85), style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-                        .frame(width: w, height: h)
-                        .position(x: geo.size.width / 2, y: geo.size.height * 0.42)
-                    Text("Fit the face in the outline")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Capsule().fill(Color.black.opacity(0.5)))
-                        .position(x: geo.size.width / 2, y: geo.size.height * 0.42 + h / 2 + 24)
-                }
-            }
-            .allowsHitTesting(false)
-        } else if mode == .document && !camera.cameraDenied {
-            VStack(spacing: 8) {
-                Image(systemName: "doc.viewfinder")
-                    .font(.system(size: 44))
-                Text("Tap the shutter to scan pages")
-                    .font(.subheadline.weight(.semibold))
-            }
-            .foregroundStyle(.white)
-            .padding(20)
-            .background(RoundedRectangle(cornerRadius: 16).fill(Color.black.opacity(0.5)))
-            .allowsHitTesting(false)
-        }
     }
 
     // MARK: Live stamp
@@ -444,7 +489,7 @@ struct CameraScreen: View {
     /// The stamp shown live on the camera, exactly where and how it will appear on the photo.
     @ViewBuilder
     private var liveStamp: some View {
-        if !camera.cameraDenied && mode == .photo && (showTime || showLocation) {
+        if !camera.cameraDenied && stampVisible {
             TimelineView(.everyMinute) { context in
                 GeometryReader { geo in
                     let angle = orientation.iconAngle
@@ -474,12 +519,15 @@ struct CameraScreen: View {
         }
     }
 
+    private var stampVisible: Bool {
+        showTime || showLocation || showCoordinates || showHeading
+            || !stampNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func liveLines(at date: Date) -> [String] {
-        _ = use24Hour   // refresh when the time format changes
-        var lines: [String] = []
-        if showTime { lines.append(StampText.time(date)) }
-        if showLocation, let place = location.placeName { lines.append(place) }
-        return lines
+        _ = (use24Hour, stampNote, showTime, showLocation, showCoordinates, showHeading)   // refresh when settings change
+        return StampText.lines(date: date, place: location.placeName,
+                               coordinate: location.current?.coordinate, heading: location.heading)
     }
 
     // MARK: Grid and level
@@ -538,7 +586,7 @@ struct CameraScreen: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(Capsule().fill(Color.black.opacity(0.6)))
+            .background(Capsule().fill(.ultraThinMaterial))
             .padding(.horizontal, 12)
             .padding(.top, 12)
         }
@@ -561,7 +609,7 @@ struct CameraScreen: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(Capsule().fill(Color.black.opacity(0.6)))
+            .background(Capsule().fill(.ultraThinMaterial))
             .padding(12)
         }
     }
@@ -606,8 +654,8 @@ struct CameraScreen: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
-                .background(Capsule().fill(Color.black.opacity(0.7)))
-                .transition(.opacity)
+                .background(Capsule().fill(.ultraThinMaterial))
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
         }
     }
 
@@ -615,17 +663,8 @@ struct CameraScreen: View {
 
     private func shutter() {
         guard !isBuilding else { return }
-        if mode == .document && camera.replaceTarget == nil {
-            if DocumentScanner.isSupported {
-                showScanner = true
-            } else {
-                showToast("Document scanning isn't available on this device")
-            }
-            return
-        }
-
         let retaking = camera.replaceTarget != nil
-        camera.capture(rotationAngle: orientation.captureAngle, kind: mode == .document ? .photo : mode)
+        camera.capture(rotationAngle: orientation.captureAngle)
 
         blink = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
@@ -694,8 +733,8 @@ struct CameraScreen: View {
 struct ShutterStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.9 : 1)
-            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.86 : 1)
+            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
@@ -719,6 +758,8 @@ struct HardwareShutter: ViewModifier {
 
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
+    /// Gives the preview layer to the camera (for tap to focus).
+    var onLayer: (AVCaptureVideoPreviewLayer) -> Void = { _ in }
 
     final class PreviewView: UIView {
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
@@ -730,6 +771,7 @@ struct CameraPreview: UIViewRepresentable {
         view.backgroundColor = .black
         view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
+        onLayer(view.previewLayer)
         return view
     }
 

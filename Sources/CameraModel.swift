@@ -5,6 +5,7 @@ import SwiftUI
 import UIKit
 import AVFoundation
 import CoreLocation
+import PDFKit
 
 // MARK: - Flash
 
@@ -66,6 +67,10 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published private(set) var zoomPresets: [CGFloat] = [1]
     @Published private(set) var minZoom: CGFloat = 1
     @Published private(set) var maxZoom: CGFloat = 10
+    /// Brightness, from -2 (darker) to +2 (brighter). 0 = automatic.
+    @Published private(set) var exposureBias: Float = 0
+    /// Goes up when the camera goes back to automatic focus (e.g. the scene changed).
+    @Published private(set) var focusResetCount = 0
     @Published private(set) var cameraDenied = false
     @Published private(set) var isFrontCamera = false
     /// Set when saving to Photos was turned on but access isn't allowed.
@@ -79,6 +84,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
 
     /// Set by the screen; used to tag photos with a location and area name.
     weak var location: LocationModel?
+    /// Set by the camera preview; turns a tap on the screen into a point for the camera.
+    weak var previewLayer: AVCaptureVideoPreviewLayer?
 
     private struct Slot {
         let id: UUID
@@ -86,7 +93,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         let replaces: UUID?
         let coordinate: CLLocationCoordinate2D?
         let placeName: String?
-        let kind: ShotKind
+        let heading: Double?
     }
     private var pendingSlots: [Slot] = []   // main thread only
 
@@ -95,6 +102,11 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         _flash = Published(initialValue: saved)
         super.init()
         restoreSession()
+        // When the scene changes a lot after tapping to focus, go back to automatic focus.
+        NotificationCenter.default.addObserver(forName: AVCaptureDevice.subjectAreaDidChangeNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            self?.resetFocus()
+        }
     }
 
     // MARK: Saved session
@@ -207,6 +219,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             self.maxZoom = maxDisplay
             self.zoom = 1
             self.isFrontCamera = newPosition == .front
+            self.exposureBias = 0
+            self.focusResetCount += 1
         }
     }
 
@@ -232,10 +246,69 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         }
     }
 
+    // MARK: Focus & brightness
+
+    /// Tap to focus: focuses and sets the brightness for that spot (a point in the preview).
+    func focus(atPreviewPoint point: CGPoint) {
+        guard let layer = previewLayer else { return }
+        let devicePoint = layer.captureDevicePointConverted(fromLayerPoint: point)
+        exposureBias = 0
+        sessionQueue.async {
+            guard let dev = self.device else { return }
+            do {
+                try dev.lockForConfiguration()
+                if dev.isFocusPointOfInterestSupported, dev.isFocusModeSupported(.autoFocus) {
+                    dev.focusPointOfInterest = devicePoint
+                    dev.focusMode = .autoFocus
+                }
+                if dev.isExposurePointOfInterestSupported, dev.isExposureModeSupported(.continuousAutoExposure) {
+                    dev.exposurePointOfInterest = devicePoint
+                    dev.exposureMode = .continuousAutoExposure
+                }
+                dev.setExposureTargetBias(0, completionHandler: nil)
+                dev.isSubjectAreaChangeMonitoringEnabled = true
+                dev.unlockForConfiguration()
+            } catch {}
+        }
+    }
+
+    /// Back to automatic focus and brightness for the whole picture (keeps the brightness slider value).
+    func resetFocus() {
+        focusResetCount += 1
+        sessionQueue.async {
+            guard let dev = self.device else { return }
+            do {
+                try dev.lockForConfiguration()
+                let center = CGPoint(x: 0.5, y: 0.5)
+                if dev.isFocusPointOfInterestSupported { dev.focusPointOfInterest = center }
+                if dev.isFocusModeSupported(.continuousAutoFocus) { dev.focusMode = .continuousAutoFocus }
+                if dev.isExposurePointOfInterestSupported { dev.exposurePointOfInterest = center }
+                if dev.isExposureModeSupported(.continuousAutoExposure) { dev.exposureMode = .continuousAutoExposure }
+                dev.isSubjectAreaChangeMonitoringEnabled = false
+                dev.unlockForConfiguration()
+            } catch {}
+        }
+    }
+
+    /// Makes the picture brighter (positive) or darker (negative).
+    func setExposureBias(_ value: Float) {
+        let clamped = min(max(value, -2), 2)
+        exposureBias = clamped
+        sessionQueue.async {
+            guard let dev = self.device else { return }
+            let safe = min(max(clamped, dev.minExposureTargetBias), dev.maxExposureTargetBias)
+            do {
+                try dev.lockForConfiguration()
+                dev.setExposureTargetBias(safe, completionHandler: nil)
+                dev.unlockForConfiguration()
+            } catch {}
+        }
+    }
+
     // MARK: Capture
 
     /// `rotationAngle`: 90 portrait, 0 / 180 landscape, 270 upside down.
-    func capture(rotationAngle: CGFloat = 90, kind: ShotKind = .photo) {
+    func capture(rotationAngle: CGFloat = 90) {
         // Location at the moment of the shot (only if it's fresh).
         var coordinate: CLLocationCoordinate2D?
         var placeName: String?
@@ -245,7 +318,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         }
 
         let slot = Slot(id: UUID(), date: Date(), replaces: replaceTarget,
-                        coordinate: coordinate, placeName: placeName, kind: kind)
+                        coordinate: coordinate, placeName: placeName,
+                        heading: location?.heading)
         if let target = replaceTarget { replacingIDs.insert(target) }
         replaceTarget = nil
         pendingSlots.append(slot)
@@ -294,24 +368,13 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                         latitude: slot.coordinate?.latitude,
                         longitude: slot.coordinate?.longitude,
                         placeName: slot.placeName)
-        shot.kind = slot.kind
-        if slot.kind == .idPhoto {
-            let d = UserDefaults.standard
-            shot.idBackground = IDBackground(rawValue: d.string(forKey: Keys.idBackground) ?? "") ?? .white
-            shot.idSize = IDSize(rawValue: d.string(forKey: Keys.idSize) ?? "") ?? .passport
-        }
-        if slot.kind == .document { shot.filter = .magic }   // like a scanner app's default
+        shot.heading = slot.heading
         return shot
     }
 
-    /// Thumbnail showing the shot's final look (filter / new background), without the stamp.
+    /// Small preview of a photo (without the stamp).
     static func makeThumbnail(_ shot: Shot) -> UIImage? {
-        switch shot.shotKind {
-        case .photo:
-            return SessionStore.thumbnail(shot.id)
-        case .document, .idPhoto:
-            return ShotRenderer.render(shot, lines: [], style: StampStyle.current(), maxDimension: 360)
-        }
+        SessionStore.thumbnail(shot.id)
     }
 
     // MARK: Order
@@ -344,50 +407,12 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                                 longitude: info.coordinate?.longitude,
                                 placeName: nil)
                 shot.imported = true
+                shot.heading = info.heading
                 if let thumb { self.thumbnails[id] = thumb }
                 self.shots.append(shot)
                 self.persist()
                 self.resolvePlaces()
             }
-        }
-    }
-
-    // MARK: Scanned documents
-
-    /// Adds pages from the document scanner to the set.
-    func addScannedPages(_ pages: [UIImage]) {
-        guard !pages.isEmpty else { return }
-        var coordinate: CLLocationCoordinate2D?
-        var placeName: String?
-        if let current = location?.current, Date().timeIntervalSince(current.timestamp) < 120 {
-            coordinate = current.coordinate
-            placeName = location?.cachedName(near: current)
-        }
-        let now = Date()
-        let slots = pages.indices.map { i in
-            Slot(id: UUID(), date: now.addingTimeInterval(Double(i) * 0.001), replaces: nil,
-                 coordinate: coordinate, placeName: placeName, kind: .document)
-        }
-        pendingCount += pages.count
-        processQueue.async {
-            for (slot, page) in zip(slots, pages) {
-                let data = page.jpegData(compressionQuality: 0.9)
-                let saved = data.map { SessionStore.writeImage($0, id: slot.id) } ?? false
-                let thumb = saved ? Self.makeThumbnail(Self.newShot(from: slot)) : nil
-                DispatchQueue.main.async { self.complete(slot, saved: saved, thumbnail: thumb) }
-            }
-        }
-    }
-
-    /// Changes a shot's options (filter, background, size) and refreshes its thumbnail.
-    func update(_ id: UUID, _ change: (inout Shot) -> Void) {
-        guard let index = shots.firstIndex(where: { $0.id == id }) else { return }
-        change(&shots[index])
-        persist()
-        let shot = shots[index]
-        processQueue.async {
-            let thumb = Self.makeThumbnail(shot)
-            DispatchQueue.main.async { if let thumb { self.thumbnails[id] = thumb } }
         }
     }
 
@@ -405,18 +430,10 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         if let thumbnail { thumbnails[shot.id] = thumbnail }
 
         if let old = slot.replaces, let index = shots.firstIndex(where: { $0.id == old }) {
-            // Retake: same position, and keep the options chosen for the old one.
-            let previous = shots[index]
-            if previous.shotKind == shot.shotKind {
-                shot.filter = previous.filter
-                shot.idBackground = previous.idBackground
-                shot.idSize = previous.idSize
-            }
+            // Retake: same position, and keep its note.
+            shot.note = shots[index].note
             shots[index] = shot
             removeFiles(for: old)
-            if shot.idBackground != Self.newShot(from: slot).idBackground || shot.idSize != Self.newShot(from: slot).idSize {
-                update(shot.id) { _ in }     // refresh the thumbnail with the kept options
-            }
         } else {
             shots.append(shot)               // new photo: at the end
         }
@@ -425,6 +442,14 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     }
 
     // MARK: Editing the set
+
+    /// Sets the note printed under a photo in the PDF (empty removes it).
+    func setNote(_ id: UUID, _ text: String) {
+        guard let index = shots.firstIndex(where: { $0.id == id }) else { return }
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        shots[index].note = clean.isEmpty ? nil : String(clean.prefix(200))
+        persist()
+    }
 
     func delete(_ id: UUID) {
         shots.removeAll { $0.id == id }
@@ -479,20 +504,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
 
     /// The stamp lines for a photo, using the current settings.
     func stampLines(for shot: Shot) -> [String] {
-        let d = UserDefaults.standard
-        var lines: [String] = []
-        switch shot.shotKind {
-        case .idPhoto: return []
-        case .document: if !d.bool(forKey: Keys.stampDocuments) { return [] }
-        case .photo: break
-        }
-        if d.bool(forKey: Keys.showTime) {
-            lines.append(StampText.time(shot.date))
-        }
-        if d.bool(forKey: Keys.showLocation), let place = shot.placeName, !place.isEmpty {
-            lines.append(place)
-        }
-        return lines
+        StampText.lines(date: shot.date, place: shot.placeName,
+                        coordinate: shot.location?.coordinate, heading: shot.heading)
     }
 
     // MARK: PDF
@@ -515,16 +528,11 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         }
     }
 
-    /// Only photos (and documents, when they're stamped) need an area name.
+    /// Photos still waiting for their area name.
     private func needsPlace(_ shot: Shot) -> Bool {
         guard shot.placeName == nil else { return false }
         // A library photo without a saved location will never get one.
-        if shot.imported == true && shot.location == nil { return false }
-        switch shot.shotKind {
-        case .photo: return true
-        case .document: return UserDefaults.standard.bool(forKey: Keys.stampDocuments)
-        case .idPhoto: return false
-        }
+        return !(shot.imported == true && shot.location == nil)
     }
 
     private func waitForPlaces(until deadline: Date, then done: @escaping () -> Void) {
@@ -548,6 +556,19 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         let style = StampStyle.current()
         let quality = Quality(rawValue: d.string(forKey: Keys.quality) ?? "") ?? .medium
         let pageSize = PageSize(rawValue: d.string(forKey: Keys.pageSize) ?? "") ?? .photo
+        let appendingTo = appendTarget
+        let wantsCover = d.bool(forKey: Keys.coverPage)
+        let wantsNumbers = d.bool(forKey: Keys.pageNumbers)
+        var places: [String] = []
+        for name in included.compactMap(\.placeName) where !name.isEmpty && !places.contains(name) {
+            places.append(name)
+        }
+        let note = StampText.note
+        let cover = PDFCover(title: note.isEmpty ? "Photos" : note,
+                             dateText: StampText.dateRange(included.map(\.date)),
+                             places: Array(places.prefix(4)),
+                             photoCount: included.count,
+                             thumbnailIDs: included.map(\.id))
 
         pdfDone = 0
         pdfTotal = pages.count
@@ -562,8 +583,15 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                     }
                 }
             }
+            // Adding to an existing PDF: no second cover, and numbers carry on.
+            let existing = appendingTo.flatMap { PDFDocument(url: $0)?.pageCount } ?? 0
+            var options = PDFOptions()
+            options.cover = (wantsCover && appendingTo == nil) ? cover : nil
+            options.pageNumbers = wantsNumbers
+            options.firstNumber = existing + 1
+            options.totalNumber = existing + pages.count
             let url = PDFBuilder.build(pages, style: style, quality: quality, pageSize: pageSize,
-                                       onPage: saveToPhotos) { done in
+                                       options: options, onPage: saveToPhotos) { done in
                 DispatchQueue.main.async { self.pdfDone = done }
             }
             DispatchQueue.main.async {

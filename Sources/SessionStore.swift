@@ -15,15 +15,13 @@ struct Shot: Identifiable, Codable, Equatable {
     var longitude: Double?
     var placeName: String?
 
-    // Optional so sessions saved by older versions still load.
-    var kind: ShotKind? = nil
-    var filter: DocFilter? = nil
-    var idBackground: IDBackground? = nil
-    var idSize: IDSize? = nil
     /// Added from the photo library (keeps its own date and location).
+    /// Optional so sessions saved by older versions still load.
     var imported: Bool? = nil
-
-    var shotKind: ShotKind { kind ?? .photo }
+    /// Compass direction the camera faced, in degrees from north (for the stamp).
+    var heading: Double? = nil
+    /// Short note printed under the photo in the PDF.
+    var note: String? = nil
 
     var location: CLLocation? {
         guard let latitude, let longitude else { return nil }
