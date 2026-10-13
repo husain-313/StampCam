@@ -1,0 +1,39 @@
+name: StampCam
+options:
+  bundleIdPrefix: com.personal
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "2.0"
+    CURRENT_PROJECT_VERSION: "10"
+    # Name shown in GitHub Releases (the app itself shows MARKETING_VERSION).
+    STAMPCAM_RELEASE: "2.0"
+targets:
+  StampCam:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.stampcam
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: StampCam
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSCameraUsageDescription: "StampCam uses the camera to take photos for your PDFs."
+        NSLocationWhenInUseUsageDescription: "StampCam shows your area name on your photos."
+        NSPhotoLibraryAddUsageDescription: "StampCam saves your stamped photos to Photos."
+        NSPhotoLibraryUsageDescription: "StampCam saves your stamped photos to a StampCam album."
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
