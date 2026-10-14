@@ -16,6 +16,8 @@ final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate
     /// Compass direction the camera is facing, in degrees from north (only while wanted).
     @Published private(set) var heading: Double?
     private var headingWanted = false
+    /// While paused, the last good direction is kept (e.g. when the camera points at the floor).
+    private var headingPaused = false
 
     private var cache: [(location: CLLocation, name: String)] = []
     private var waiting: [String: [(String?) -> Void]] = [:]
@@ -50,6 +52,11 @@ final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate
     func setHeadingWanted(_ on: Bool) {
         headingWanted = on
         updateHeading()
+    }
+
+    /// Keeps the last good direction while the reading would be unreliable.
+    func setHeadingPaused(_ paused: Bool) {
+        headingPaused = paused
     }
 
     /// Which way the phone is held, so the direction is the one the camera faces.
@@ -129,7 +136,9 @@ final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
-        guard headingWanted, newHeading.headingAccuracy >= 0 else { return }
+        // Skip readings the compass itself isn't sure about.
+        guard headingWanted, !headingPaused,
+              newHeading.headingAccuracy >= 0, newHeading.headingAccuracy <= 30 else { return }
         heading = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
     }
 

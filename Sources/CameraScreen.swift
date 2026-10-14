@@ -139,6 +139,9 @@ struct CameraScreen: View {
         .onChange(of: orientation.hold, initial: true) { _, _ in
             location.setHeadingOrientation(orientation.headingOrientation)
         }
+        .onChange(of: orientation.isSteep, initial: true) { _, steep in
+            location.setHeadingPaused(steep)
+        }
         .onChange(of: camera.focusResetCount) { _, _ in
             focusHide?.cancel()
             withAnimation(.easeOut(duration: 0.25)) { focusPoint = nil }

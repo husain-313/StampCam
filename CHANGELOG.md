@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3
+Fixes found while testing 2.2:
+- **Name PDF:** page numbers (like *2 / 3*) are no longer offered as tappable text, and overlapping boxes (e.g. on round logos) are cleaned up.
+- **Smart suggestions** skip text that was probably misread.
+- **Settings:** the stamp preview is bigger and zoomed in, so you can read it.
+- **Compass:** steadier — it keeps the last good direction while the camera points at the floor or sky, and skips unsure readings.
+
+
 ## 2.2
 - **Tap text in your photos to name the PDF.** The Name PDF screen now shows your photos with every piece of text highlighted. Tap any of it (a shop sign, a number, a name) and it becomes the file name. Swipe to see more photos.
 - Smart suggestions and your note are still listed below.
