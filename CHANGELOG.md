@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.4 — Pro camera look
+- **Glass controls:** the top and bottom controls sit on glass (Apple's Liquid Glass on iOS 26, frosted glass on older iOS).
+- **Haptics:** a light tap on every camera button, a click when changing lens, and a click when the phone is level (grid on).
+- **Gestures:**
+  - Swipe left or right on the picture to change lens (.5 / 1 / 2 / 5).
+  - Press and hold the lens buttons, then slide, for a smooth zoom dial.
+  - Double-tap the picture to switch between the back and front cameras.
+- **Shutter:** bigger, with a little press animation.
+
+
 ## 2.3
 Fixes found while testing 2.2:
 - **Name PDF:** page numbers (like *2 / 3*) are no longer offered as tappable text, and overlapping boxes (e.g. on round logos) are cleaned up.
