@@ -13,6 +13,7 @@ struct FilesView: View {
     @State private var editMode: EditMode = .inactive
     @State private var selection = Set<URL>()
     @State private var confirmBulkDelete = false
+    @State private var showDeleteAlert = false
     @State private var showMover = false
     /// Adds new photos to the end of this PDF (back to the camera).
     var onAddPhotos: (URL) -> Void = { _ in }
@@ -73,7 +74,7 @@ struct FilesView: View {
                 PDFDetailView(file: file,
                               onAddPhotos: { onAddPhotos(file.url) },
                               onRename: { renaming = file },
-                              onDelete: { deleting = file })
+                              onDelete: { delete(file) })
             }
             .navigationTitle(isSelecting ? (selection.isEmpty ? "Select PDFs" : "\(selection.count) Selected") : "Files")
             .toolbar {
@@ -133,17 +134,18 @@ struct FilesView: View {
                     reload()
                 }
             }
-            .confirmationDialog("Delete this PDF?",
-                                isPresented: Binding(get: { deleting != nil },
-                                                     set: { if !$0 { deleting = nil } }),
-                                titleVisibility: .visible,
-                                presenting: deleting) { file in
-                Button("Delete PDF", role: .destructive) {
-                    FileStore.delete(file)
-                    deleting = nil
-                    path.removeAll()
-                    reload()
-                }
+            // Swipe or long-press delete from the list.
+            .alert("Delete this PDF?", isPresented: $showDeleteAlert, presenting: deleting) { file in
+                Button("Delete", role: .destructive) { delete(file) }
+                Button("Cancel", role: .cancel) { deleting = nil }
+            } message: { file in
+                Text("\"\(file.name)\" will be deleted. This can't be undone.")
+            }
+            .onChange(of: deleting) { _, file in
+                if file != nil { showDeleteAlert = true }
+            }
+            .onChange(of: showDeleteAlert) { _, shown in
+                if !shown { deleting = nil }
             }
         }
     }
@@ -158,6 +160,14 @@ struct FilesView: View {
         reload()
     }
 
+    private func delete(_ file: PDFFile) {
+        FileStore.delete(file)
+        deleting = nil
+        path.removeAll()
+        reload()
+        Haptics.tap()
+    }
+
     private func reload() {
         files = FileStore.list()
         selection = selection.filter { url in files.contains { $0.url == url } }
@@ -170,7 +180,9 @@ struct PDFDetailView: View {
     let file: PDFFile
     var onAddPhotos: () -> Void
     var onRename: () -> Void
+    /// Called after you confirm; deletes the file and goes back to the list.
     var onDelete: () -> Void
+    @State private var confirmDelete = false
 
     var body: some View {
         PDFKitView(url: file.url)
@@ -187,11 +199,18 @@ struct PDFDetailView: View {
                         Image(systemName: "pencil")
                     }
                     ShareLink(item: file.url)
-                    Button(role: .destructive, action: onDelete) {
+                    Button(role: .destructive) { confirmDelete = true } label: {
                         Image(systemName: "trash")
                     }
                     .tint(.red)
                 }
+            }
+            // The question is asked here, on the PDF itself, so the answer always reaches it.
+            .alert("Delete this PDF?", isPresented: $confirmDelete) {
+                Button("Delete", role: .destructive, action: onDelete)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("\"\(file.name)\" will be deleted. This can't be undone.")
             }
     }
 }
