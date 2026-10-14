@@ -143,6 +143,18 @@ struct SettingsView: View {
                             ? "After Done you can name the PDF, with smart suggestions from the text in your photos. You can always rename later from the folder button."
                             : "PDFs are named by date. You can rename them anytime from the folder button."))
                 }
+
+                Section("About") {
+                    NavigationLink {
+                        AboutView()
+                    } label: {
+                        HStack {
+                            Label("About StampCam", systemImage: "info.circle")
+                            Spacer()
+                            Text(AppInfo.version).foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
             .navigationTitle("Settings")
             .tint(.yellow)
