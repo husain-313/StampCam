@@ -42,6 +42,7 @@ jobs:
 
       - name: Build (unsigned)
         run: |
+          set -o pipefail
           xcodebuild \
             -project StampCam.xcodeproj \
             -scheme StampCam \
@@ -52,7 +53,13 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee build.log || {
+              # Show the compile errors as annotations, so they're easy to see.
+              grep -E "error:" build.log | sort -u | head -10 | while IFS= read -r line; do
+                echo "::error::${line}"
+              done
+              exit 1
+            }
 
       - name: Package IPA
         run: |

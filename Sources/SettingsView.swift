@@ -43,16 +43,15 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    HStack {
-                        Spacer()
-                        StampPreview(lines: previewLines,
-                                     position: StampPosition(rawValue: position) ?? .bottomRight,
-                                     size: stampSize,
-                                     color: StampColor(rawValue: stampColor) ?? .white)
-                            .frame(width: 180, height: 240)
-                        Spacer()
-                    }
-                    .listRowBackground(Color.clear)
+                    StampPreview(lines: previewLines,
+                                 position: StampPosition(rawValue: position) ?? .bottomRight,
+                                 size: stampSize,
+                                 color: StampColor(rawValue: stampColor) ?? .white)
+                        .frame(height: 170)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                } footer: {
+                    Text("Preview, zoomed in on the corner of a photo.")
                 }
 
                 Section {
@@ -145,7 +144,7 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Live preview of the stamp on a bright sample photo
+// MARK: - Live preview of the stamp, zoomed in on the corner of a sample photo
 
 struct StampPreview: View {
     let lines: [String]
@@ -153,26 +152,33 @@ struct StampPreview: View {
     let size: Double
     let color: StampColor
 
+    /// The short side of the imaginary photo; the card shows only its corner, so the text is easy to read.
+    private let photoShortSide: Double = 370
+
     var body: some View {
-        GeometryReader { geo in
-            let fontSize = geo.size.width * size
-            ZStack(alignment: position.alignment) {
-                LinearGradient(colors: [Color(red: 0.62, green: 0.80, blue: 0.95),
-                                        Color(red: 0.93, green: 0.88, blue: 0.78)],
-                               startPoint: .top, endPoint: .bottom)
-                if !lines.isEmpty {
-                    Text(lines.joined(separator: "\n"))
-                        .font(.system(size: fontSize, weight: .bold).monospacedDigit())
-                        .multilineTextAlignment(position.isLeft ? .leading : .trailing)
-                        .foregroundStyle(color.color)
-                        .shadow(color: color.shadow, radius: fontSize * 0.2)
-                        .shadow(color: color.shadow, radius: fontSize * 0.2)
-                        .padding(fontSize * 0.9)
-                }
+        let fontSize = photoShortSide * size
+        ZStack(alignment: position.alignment) {
+            LinearGradient(colors: [Color(red: 0.62, green: 0.80, blue: 0.95),
+                                    Color(red: 0.93, green: 0.88, blue: 0.78)],
+                           startPoint: .top, endPoint: .bottom)
+            if lines.isEmpty {
+                Text("Nothing on the photo")
+                    .font(.footnote)
+                    .foregroundStyle(.black.opacity(0.4))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Text(lines.joined(separator: "\n"))
+                    .font(.system(size: fontSize, weight: .bold).monospacedDigit())
+                    .multilineTextAlignment(position.isLeft ? .leading : .trailing)
+                    .lineSpacing(fontSize * 0.15)
+                    .foregroundStyle(color.color)
+                    .shadow(color: color.shadow, radius: fontSize * 0.2)
+                    .shadow(color: color.shadow, radius: fontSize * 0.2)
+                    .padding(fontSize * 0.9)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .animation(.easeOut(duration: 0.15), value: position)
     }
 }

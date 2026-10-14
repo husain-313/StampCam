@@ -67,14 +67,34 @@ enum TextScanner {
         let showSize = CGSize(width: bounds.width * 900 / longest, height: bounds.height * 900 / longest)
         let shown = page.thumbnail(of: showSize, for: .mediaBox)
 
-        let lines = found
-            .filter { !$0.text.isEmpty && $0.confidence >= 0.3 }
-            .map { item in
-                Line(text: String(item.text.prefix(80)),
-                     box: CGRect(x: item.box.minX, y: 1 - item.box.maxY,
-                                 width: item.box.width, height: item.box.height))
+        return Page(id: index, image: shown, lines: tapLines(found), found: found)
+    }
+
+    /// Text to show as tap targets: no page numbers, and no small boxes hidden under a bigger one
+    /// (curved text like a round logo is often read several times).
+    private static func tapLines(_ found: [Found]) -> [Line] {
+        let candidates = found
+            .filter { !$0.text.isEmpty && $0.confidence >= 0.3 && !isPageNumber($0.text) }
+            .sorted { $0.box.width * $0.box.height > $1.box.width * $1.box.height }
+        var kept: [Found] = []
+        for item in candidates {
+            let area = item.box.width * item.box.height
+            let hidden = kept.contains { other in
+                let overlap = other.box.intersection(item.box)
+                return !overlap.isNull && overlap.width * overlap.height > 0.6 * area
             }
-        return Page(id: index, image: shown, lines: lines, found: found)
+            if !hidden { kept.append(item) }
+        }
+        return kept.map { item in
+            Line(text: String(item.text.prefix(80)),
+                 box: CGRect(x: item.box.minX, y: 1 - item.box.maxY,
+                             width: item.box.width, height: item.box.height))
+        }
+    }
+
+    /// "2 / 3": the page number StampCam prints on PDF pages.
+    private static func isPageNumber(_ text: String) -> Bool {
+        text.range(of: #"^\s*\d+\s*/\s*\d+\s*$"#, options: .regularExpression) != nil
     }
 
     private static func recognize(_ image: CGImage, page: Int) -> [Found] {
@@ -160,11 +180,15 @@ enum TextScanner {
 
     private static func isUsable(_ item: Found) -> Bool {
         let text = item.text
-        guard text.count >= 2, item.confidence >= 0.5 else { return false }
+        guard text.count >= 2, item.confidence >= 0.6 else { return false }
 
         let scalars = text.unicodeScalars.filter { !CharacterSet.whitespaces.contains($0) }
         let letters = scalars.filter { CharacterSet.letters.contains($0) }.count
         guard !scalars.isEmpty, Double(letters) / Double(scalars.count) >= 0.5 else { return false }
+
+        // Persian-only letters (ی ک گ پ چ ژ) on Arabic signs usually mean the text was misread.
+        let persianOnly: Set<UInt32> = [0x06CC, 0x06A9, 0x06AF, 0x067E, 0x0686, 0x0698]
+        if text.unicodeScalars.contains(where: { persianOnly.contains($0.value) }) { return false }
 
         // Arabic and English letters mixed in one line is usually misread handwriting.
         let hasArabic = isArabic(text)

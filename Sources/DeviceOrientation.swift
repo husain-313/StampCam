@@ -19,6 +19,8 @@ final class DeviceOrientation: ObservableObject {
     @Published private(set) var tilt: Double = 0
     /// True when the phone is lying flat (the level is hidden then).
     @Published private(set) var isFlat = false
+    /// True when the camera points steeply at the floor or sky (the compass is unreliable then).
+    @Published private(set) var isSteep = false
 
     private let motion = CMMotionManager()
 
@@ -32,6 +34,8 @@ final class DeviceOrientation: ObservableObject {
             // Level: angle between gravity and "down" for the way the phone is held.
             let flat = abs(g.z) > 0.9
             if flat != self.isFlat { self.isFlat = flat }
+            let steep = abs(g.z) > 0.8
+            if steep != self.isSteep { self.isSteep = steep }
             let down: (Double, Double)
             switch self.hold {
             case .portrait: down = (0, -1)
