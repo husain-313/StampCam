@@ -40,6 +40,7 @@ struct CameraScreen: View {
     @State private var dialStart: CGFloat = 1
     @State private var ignoreZoomTapsUntil = Date.distantPast
     @AppStorage("showGrid") private var showGrid = false
+    @AppStorage(Keys.seenCameraTips) private var seenCameraTips = false
     @Environment(\.scenePhase) private var scenePhase
 
     enum ActiveSheet: Identifiable {
@@ -118,6 +119,14 @@ struct CameraScreen: View {
                 Spacer(minLength: 0)
                 bottomBar.padding(.horizontal, 28)
                 Spacer(minLength: 0)
+            }
+
+            if !seenCameraTips && !camera.cameraDenied && sheet == nil {
+                CameraTips(hasCameraControl: camera.hasCameraControl) {
+                    Haptics.tap()
+                    withAnimation(.easeOut(duration: 0.25)) { seenCameraTips = true }
+                }
+                .transition(.opacity)
             }
         }
         .modifier(HardwareShutter { if sheet == nil { shutter() } })
@@ -202,11 +211,13 @@ struct CameraScreen: View {
             switch item {
             case .settings:
                 SettingsView(locationName: location.placeName)
+                    .glassSheet()
             case .files:
                 FilesView(onAddPhotos: { url in
                     camera.appendTarget = url
                     sheet = nil
                 })
+                .glassSheet()
             case .review:
                 ReviewView(camera: camera,
                            onRetake: { id in
@@ -214,6 +225,7 @@ struct CameraScreen: View {
                                sheet = nil
                            },
                            onCreatePDF: { createPDF() })
+                .glassSheet()
             case .share(let url):
                 ShareSheet(url: url)
                     .presentationDetents([.medium, .large])
@@ -223,6 +235,7 @@ struct CameraScreen: View {
                     sheet = nil
                     afterSaved(finalURL, delay: 0.5)
                 }
+                .glassSheet()
             }
         }
     }

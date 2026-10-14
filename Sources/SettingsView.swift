@@ -24,6 +24,7 @@ struct SettingsView: View {
     @AppStorage(Keys.showCoordinates) private var showCoordinates = false
     @AppStorage(Keys.showHeading) private var showHeading = false
     @AppStorage(Keys.pageNumbers) private var pageNumbers = true
+    @AppStorage(Keys.seenCameraTips) private var seenCameraTips = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -95,6 +96,17 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(!stampOn)
+
+                Section {
+                    Button {
+                        seenCameraTips = false
+                        dismiss()
+                    } label: {
+                        Label("Show Camera Tips", systemImage: "hand.tap")
+                    }
+                } footer: {
+                    Text("Shows the swipe, zoom and focus gestures again.")
+                }
 
                 Section {
                     Toggle("Save to Photos", isOn: $saveToPhotos)

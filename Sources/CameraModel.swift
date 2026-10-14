@@ -49,6 +49,9 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     private var device: AVCaptureDevice?
     private var position: AVCaptureDevice.Position = .back
     private var baseFactor: CGFloat = 1   // device zoom factor that equals "1x"
+    // Keep the on-screen zoom and brightness in step when the Camera Control button changes them.
+    private var zoomObservation: NSKeyValueObservation?
+    private var biasObservation: NSKeyValueObservation?
 
     // The current set (main thread)
     @Published private(set) var shots: [Shot] = []
@@ -72,6 +75,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     /// Goes up when the camera goes back to automatic focus (e.g. the scene changed).
     @Published private(set) var focusResetCount = 0
     @Published private(set) var cameraDenied = false
+    /// This iPhone has the Camera Control button (iPhone 16 and newer).
+    @Published private(set) var hasCameraControl = false
     @Published private(set) var isFrontCamera = false
     /// Set when saving to Photos was turned on but access isn't allowed.
     @Published var photoAccessDenied = false
@@ -180,6 +185,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         for old in session.inputs { session.removeInput(old) }
         if session.canAddInput(input) { session.addInput(input) }
         if session.canAddOutput(output) { session.addOutput(output) }
+        if #available(iOS 18.0, *) { installCameraControls(for: dev) }
         session.commitConfiguration()
         device = dev
         position = newPosition
@@ -212,6 +218,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             dev.unlockForConfiguration()
         } catch {}
         baseFactor = base
+        watchDevice(dev, base: base)
 
         DispatchQueue.main.async {
             self.zoomPresets = presets
@@ -221,6 +228,44 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             self.isFrontCamera = newPosition == .front
             self.exposureBias = 0
             self.focusResetCount += 1
+        }
+    }
+
+    // MARK: Camera Control button (iPhone 16)
+
+    /// Runs on sessionQueue, inside a configuration: slide on the Camera Control for zoom or brightness.
+    @available(iOS 18.0, *)
+    private func installCameraControls(for dev: AVCaptureDevice) {
+        guard session.supportsControls else { return }
+        DispatchQueue.main.async { self.hasCameraControl = true }
+        if session.controlsDelegate == nil {
+            session.setControlsDelegate(self, queue: sessionQueue)
+        }
+        for control in session.controls { session.removeControl(control) }
+        let controls: [AVCaptureControl] = [
+            AVCaptureSystemZoomSlider(device: dev),
+            AVCaptureSystemExposureBiasSlider(device: dev)
+        ]
+        for control in controls where session.canAddControl(control) {
+            session.addControl(control)
+        }
+    }
+
+    /// Follows the camera's zoom and brightness, whoever changes them (pinch, buttons or Camera Control).
+    private func watchDevice(_ dev: AVCaptureDevice, base: CGFloat) {
+        zoomObservation = dev.observe(\.videoZoomFactor, options: [.new]) { [weak self] device, _ in
+            let display = device.videoZoomFactor / base
+            DispatchQueue.main.async {
+                guard let self, abs(self.zoom - display) > 0.01 else { return }
+                self.zoom = display
+            }
+        }
+        biasObservation = dev.observe(\.exposureTargetBias, options: [.new]) { [weak self] device, _ in
+            let bias = device.exposureTargetBias
+            DispatchQueue.main.async {
+                guard let self, abs(self.exposureBias - bias) > 0.01 else { return }
+                self.exposureBias = bias
+            }
         }
     }
 
@@ -618,4 +663,14 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         }
         d.set(Array(places.suffix(30)), forKey: Keys.stampedPlaces)
     }
+}
+
+// MARK: - Camera Control button
+
+@available(iOS 18.0, *)
+extension CameraModel: AVCaptureSessionControlsDelegate {
+    func sessionControlsDidBecomeActive(_ session: AVCaptureSession) {}
+    func sessionControlsWillEnterFullscreenAppearance(_ session: AVCaptureSession) {}
+    func sessionControlsWillExitFullscreenAppearance(_ session: AVCaptureSession) {}
+    func sessionControlsDidBecomeInactive(_ session: AVCaptureSession) {}
 }
