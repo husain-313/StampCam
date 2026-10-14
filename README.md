@@ -20,7 +20,9 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 - Flash: Off, Auto or On
 - Zoom with two fingers or tap the lens buttons (.5×, 1×, 2×, 5×)
 - Take photos with the volume buttons or the Camera Control button
-- Front and back cameras
+- Front and back cameras — or double-tap the picture to switch
+- Swipe left or right on the picture to change lens; press and hold the lens buttons for a smooth zoom dial
+- Glass controls and haptic feedback, like a pro camera app
 - **Tap to focus**, then slide up or down to make the photo brighter or darker
 - Shoot in portrait or landscape — photos and the stamp are always upright
 - Grid lines and a level to keep shots straight

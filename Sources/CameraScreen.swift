@@ -34,6 +34,11 @@ struct CameraScreen: View {
     @State private var focusHide: DispatchWorkItem?
     @State private var biasStart: Float?
     @State private var thumbBounce = false
+    @State private var dragMode: DragMode?
+    @State private var previewWidth: CGFloat = 0
+    @State private var dialActive = false
+    @State private var dialStart: CGFloat = 1
+    @State private var ignoreZoomTapsUntil = Date.distantPast
     @AppStorage("showGrid") private var showGrid = false
     @Environment(\.scenePhase) private var scenePhase
 
@@ -50,7 +55,12 @@ struct CameraScreen: View {
         }
     }
 
+    /// What a one-finger drag on the picture does.
+    enum DragMode { case brightness, lens }
+
     private var totalCount: Int { camera.shots.count + camera.pendingCount }
+    /// The phone is straight (grid on): gives a small click so you can feel it.
+    private var isLevel: Bool { showGrid && !orientation.isFlat && abs(orientation.tilt) < 1 }
     private var canFinish: Bool { !camera.shots.isEmpty && camera.pendingCount == 0 && !isBuilding }
     /// Location is needed for the area name, the coordinates or the direction.
     private var needsLocation: Bool { showLocation || showCoordinates || showHeading }
@@ -68,9 +78,15 @@ struct CameraScreen: View {
                         .frame(maxWidth: .infinity)
                         .aspectRatio(3.0 / 4.0, contentMode: .fit)
                         .clipped()
+                        .background(GeometryReader { geo in
+                            Color.clear
+                                .onAppear { previewWidth = geo.size.width }
+                                .onChange(of: geo.size.width) { _, w in previewWidth = w }
+                        })
                         .gesture(pinchGesture)
                         .simultaneousGesture(focusTap)
-                        .simultaneousGesture(brightnessDrag)
+                        .simultaneousGesture(flipTap)
+                        .simultaneousGesture(previewDrag)
                         .overlay(Color.black.opacity(blink ? 0.7 : 0).allowsHitTesting(false))
                         .overlay { gridAndLevel }
                         .overlay { liveStamp }
@@ -88,7 +104,7 @@ struct CameraScreen: View {
 
                 // Brightness, zoom and front/back below the preview, so nothing covers the stamp.
                 ZStack {
-                    if camera.zoomPresets.count > 1 { zoomBar }
+                    if camera.zoomPresets.count > 1 { zoomControl }
                     brightnessChip
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, 16)
@@ -141,6 +157,9 @@ struct CameraScreen: View {
         }
         .onChange(of: orientation.isSteep, initial: true) { _, steep in
             location.setHeadingPaused(steep)
+        }
+        .onChange(of: isLevel) { _, level in
+            if level { Haptics.tick() }
         }
         .onChange(of: camera.focusResetCount) { _, _ in
             focusHide?.cancel()
@@ -212,35 +231,58 @@ struct CameraScreen: View {
 
     private var topBar: some View {
         HStack(spacing: 8) {
-            Button { camera.flash = camera.flash.next } label: {
-                barIcon(camera.flash.icon, active: camera.flash == .on)
+            HStack(spacing: 2) {
+                Button {
+                    Haptics.tap()
+                    camera.flash = camera.flash.next
+                } label: {
+                    barIcon(camera.flash.icon, active: camera.flash == .on)
+                }
+                .accessibilityLabel("Flash")
+                Button {
+                    Haptics.tap()
+                    showGrid.toggle()
+                } label: {
+                    barIcon("squareshape.split.3x3", active: showGrid)
+                }
+                .accessibilityLabel("Grid and level")
             }
-            .accessibilityLabel("Flash")
-            Button { showGrid.toggle() } label: {
-                barIcon("squareshape.split.3x3", active: showGrid)
-            }
-            .accessibilityLabel("Grid and level")
+            .padding(3)
+            .glass(Capsule())
+
             Spacer(minLength: 4)
             if showLocation { locationPill }
             Spacer(minLength: 4)
-            PhotosPicker(selection: $pickerItems, maxSelectionCount: 30, matching: .images) {
-                barIcon("photo.on.rectangle")
+
+            HStack(spacing: 2) {
+                PhotosPicker(selection: $pickerItems, maxSelectionCount: 30, matching: .images) {
+                    barIcon("photo.on.rectangle")
+                }
+                .accessibilityLabel("Add from Photos")
+                Button {
+                    Haptics.tap()
+                    sheet = .files
+                } label: { barIcon("folder") }
+                    .accessibilityLabel("Your PDFs")
+                Button {
+                    Haptics.tap()
+                    sheet = .settings
+                } label: { barIcon("gearshape") }
+                    .accessibilityLabel("Settings")
             }
-            .accessibilityLabel("Add from Photos")
-            Button { sheet = .files } label: { barIcon("folder") }
-                .accessibilityLabel("Your PDFs")
-            Button { sheet = .settings } label: { barIcon("gearshape") }
-                .accessibilityLabel("Settings")
+            .padding(3)
+            .glass(Capsule())
         }
     }
 
-    /// Round, softly lit icon button used across the top bar.
+    /// Icon used in the glass bars; turns yellow when it's on.
     private func barIcon(_ name: String, active: Bool = false) -> some View {
         Image(systemName: name)
-            .font(.system(size: 16, weight: .semibold))
+            .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(active ? Color.black : Color.white)
-            .frame(width: 38, height: 38)
-            .background(Circle().fill(active ? Color.yellow : Color.white.opacity(0.12)))
+            .frame(width: 36, height: 36)
+            .background(Circle().fill(active ? Color.yellow : Color.clear))
+            .contentShape(Circle())
             .upright(orientation.iconAngle)
             .animation(.easeOut(duration: 0.15), value: active)
     }
@@ -266,8 +308,8 @@ struct CameraScreen: View {
             .font(.caption.weight(.semibold))
             .foregroundStyle(location.isDenied ? Color.orange : Color.white)
             .padding(.horizontal, 12)
-            .frame(height: 30)
-            .background(Capsule().fill(Color.white.opacity(0.12)))
+            .frame(height: 34)
+            .glass(Capsule())
         }
         .disabled(!location.isDenied)
     }
@@ -293,23 +335,91 @@ struct CameraScreen: View {
         camera.zoomPresets.lastIndex { $0 <= camera.zoom + 0.01 } ?? 0
     }
 
+    /// Lens buttons; press and hold, then slide, for a smooth zoom dial.
+    private var zoomControl: some View {
+        ZStack {
+            if dialActive { zoomDial } else { zoomBar }
+        }
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: dialActive)
+        .simultaneousGesture(dialGesture)
+    }
+
     private var zoomBar: some View {
         HStack(spacing: 6) {
             ForEach(Array(camera.zoomPresets.enumerated()), id: \.offset) { index, preset in
                 let selected = index == selectedPreset
-                Button { camera.setZoom(preset, animated: true) } label: {
+                Button {
+                    // A release right after using the dial isn't a tap.
+                    guard Date() > ignoreZoomTapsUntil else { return }
+                    Haptics.tick()
+                    camera.setZoom(preset, animated: true)
+                } label: {
                     Text(zoomLabel(selected ? camera.zoom : preset, selected: selected))
                         .font(.system(size: selected ? 13 : 12, weight: .bold))
                         .foregroundStyle(selected ? Color.yellow : Color.white)
                         .frame(width: selected ? 40 : 32, height: selected ? 40 : 32)
-                        .background(Circle().fill(Color.white.opacity(selected ? 0.16 : 0.08)))
+                        .background(Circle().fill(Color.black.opacity(selected ? 0.35 : 0.2)))
                         .upright(orientation.iconAngle)
                 }
             }
         }
-        .padding(5)
-        .background(Capsule().fill(Color.white.opacity(0.06)))
+        .padding(4)
+        .glass(Capsule())
         .animation(.easeOut(duration: 0.15), value: selectedPreset)
+    }
+
+    private var zoomDial: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "minus.magnifyingglass")
+            Text(String(format: "%.1f×", Double(camera.zoom)))
+                .font(.system(size: 16, weight: .bold).monospacedDigit())
+                .foregroundStyle(.yellow)
+                .frame(minWidth: 52)
+            Image(systemName: "plus.magnifyingglass")
+        }
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 18)
+        .frame(height: 44)
+        .glass(Capsule())
+        .transition(.scale(scale: 0.9).combined(with: .opacity))
+    }
+
+    /// Press and hold the lens buttons, then slide right to zoom in and left to zoom out.
+    private var dialGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.35)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                guard case .second(true, let drag) = value else { return }
+                if !dialActive {
+                    dialActive = true
+                    dialStart = camera.zoom
+                    Haptics.tap()
+                }
+                guard let drag else { return }
+                let target = dialStart * CGFloat(exp(Double(drag.translation.width) / 140))
+                let clamped = min(max(target, camera.minZoom), camera.maxZoom)
+                // A click each time you pass a lens (.5, 1, 2, 5).
+                if camera.zoomPresets.contains(where: { (camera.zoom < $0) != (clamped < $0) }) {
+                    Haptics.tick()
+                }
+                camera.setZoom(clamped)
+            }
+            .onEnded { _ in
+                guard dialActive else { return }
+                dialActive = false
+                ignoreZoomTapsUntil = Date().addingTimeInterval(0.4)
+            }
+    }
+
+    /// Swipe left or right on the picture to change lens.
+    private func switchLens(by step: Int) {
+        let presets = camera.zoomPresets
+        guard presets.count > 1 else { return }
+        let next = min(max(selectedPreset + step, 0), presets.count - 1)
+        guard next != selectedPreset else { return }
+        Haptics.tick()
+        camera.setZoom(presets[next], animated: true)
     }
 
     private func zoomLabel(_ value: CGFloat, selected: Bool) -> String {
@@ -323,7 +433,10 @@ struct CameraScreen: View {
 
     private var bottomBar: some View {
         HStack {
-            Button { sheet = .review } label: { thumbnail.upright(orientation.iconAngle) }
+            Button {
+                Haptics.tap()
+                sheet = .review
+            } label: { thumbnail.upright(orientation.iconAngle) }
                 .disabled(totalCount == 0)
                 .frame(width: 80, alignment: .leading)
 
@@ -331,9 +444,11 @@ struct CameraScreen: View {
 
             Button { shutter() } label: {
                 ZStack {
-                    Circle().stroke(Color.white, lineWidth: 4).frame(width: 78, height: 78)
-                    Circle().fill(Color.white).frame(width: 64, height: 64)
+                    Circle().stroke(Color.white, lineWidth: 4).frame(width: 80, height: 80)
+                    Circle().fill(Color.white).frame(width: 66, height: 66)
+                        .scaleEffect(blink ? 0.85 : 1)
                 }
+                .shadow(color: .white.opacity(0.15), radius: 8)
             }
             .buttonStyle(ShutterStyle())
             .disabled(isBuilding)
@@ -341,7 +456,10 @@ struct CameraScreen: View {
 
             Spacer()
 
-            Button { createPDF() } label: {
+            Button {
+                Haptics.tap()
+                createPDF()
+            } label: {
                 Group {
                     if isBuilding {
                         ProgressView().tint(.black)
@@ -350,9 +468,9 @@ struct CameraScreen: View {
                             .font(.system(size: 16, weight: .bold))
                     }
                 }
-                .foregroundStyle(canFinish ? Color.black : Color.white.opacity(0.35))
+                .foregroundStyle(canFinish ? Color.black : Color.white.opacity(0.4))
                 .frame(width: 76, height: 44)
-                .background(Capsule().fill(canFinish || isBuilding ? Color.yellow : Color.white.opacity(0.1)))
+                .modifier(DoneBackground(ready: canFinish || isBuilding))
                 .upright(orientation.iconAngle)
                 .animation(.easeOut(duration: 0.2), value: canFinish)
             }
@@ -395,16 +513,19 @@ struct CameraScreen: View {
     @ViewBuilder
     private var brightnessChip: some View {
         if camera.exposureBias != 0 {
-            Button { camera.setExposureBias(0) } label: {
+            Button {
+                Haptics.tap()
+                camera.setExposureBias(0)
+            } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "sun.max.fill")
                     Text(String(format: "%+.1f", camera.exposureBias)).monospacedDigit()
                 }
                 .font(.caption.bold())
                 .foregroundStyle(.yellow)
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .background(Capsule().fill(Color.white.opacity(0.1)))
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .glass(Capsule())
                 .upright(orientation.iconAngle)
             }
             .accessibilityLabel("Brightness. Tap to reset")
@@ -425,22 +546,53 @@ struct CameraScreen: View {
             }
     }
 
-    /// After tapping, slide up or down to make the picture brighter or darker.
-    private var brightnessDrag: some Gesture {
-        DragGesture(minimumDistance: 10)
+    /// Double-tap the picture to switch between the back and front cameras.
+    private var flipTap: some Gesture {
+        TapGesture(count: 2).onEnded {
+            guard !camera.cameraDenied else { return }
+            camera.toggleCamera()
+        }
+    }
+
+    /// One finger on the picture:
+    /// - after tapping to focus, slide up or down for brightness;
+    /// - swipe left or right to change lens (not from the very edge of the screen).
+    private var previewDrag: some Gesture {
+        DragGesture(minimumDistance: 12)
             .onChanged { value in
-                guard focusPoint != nil, pinchStart == nil else { return }
-                if biasStart == nil {
-                    biasStart = camera.exposureBias
-                    focusHide?.cancel()
+                guard pinchStart == nil else { return }
+                if dragMode == nil {
+                    let dx = abs(value.translation.width), dy = abs(value.translation.height)
+                    let nearEdge = value.startLocation.x < 20 || value.startLocation.x > previewWidth - 20
+                    if focusPoint != nil && dy > dx {
+                        dragMode = .brightness
+                        biasStart = camera.exposureBias
+                        focusHide?.cancel()
+                    } else if dx > dy * 1.5 && !nearEdge {
+                        dragMode = .lens
+                    } else {
+                        return
+                    }
                 }
-                let delta = Float(-value.translation.height / 120)
-                camera.setExposureBias((biasStart ?? 0) + delta)
+                if dragMode == .brightness {
+                    let delta = Float(-value.translation.height / 120)
+                    camera.setExposureBias((biasStart ?? 0) + delta)
+                }
             }
-            .onEnded { _ in
-                guard biasStart != nil else { return }
-                biasStart = nil
-                scheduleFocusHide()
+            .onEnded { value in
+                switch dragMode {
+                case .lens:
+                    // Swipe left = closer, swipe right = wider.
+                    if abs(value.translation.width) > 50 {
+                        switchLens(by: value.translation.width < 0 ? 1 : -1)
+                    }
+                case .brightness:
+                    biasStart = nil
+                    scheduleFocusHide()
+                case nil:
+                    break
+                }
+                dragMode = nil
             }
     }
 
@@ -482,7 +634,7 @@ struct CameraScreen: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
-                .background(Circle().fill(Color.white.opacity(0.12)))
+                .glass(Circle())
                 .upright(orientation.iconAngle)
         }
         .accessibilityLabel(camera.isFrontCamera ? "Use back camera" : "Use front camera")
@@ -583,14 +735,17 @@ struct CameraScreen: View {
                     .font(.subheadline.bold())
                     .lineLimit(1)
                 Spacer()
-                Button("Cancel") { camera.appendTarget = nil }
+                Button("Cancel") {
+                    Haptics.tap()
+                    camera.appendTarget = nil
+                }
                     .font(.subheadline.bold())
                     .foregroundStyle(.yellow)
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(Capsule().fill(.ultraThinMaterial))
+            .glass(Capsule())
             .padding(.horizontal, 12)
             .padding(.top, 12)
         }
@@ -606,14 +761,17 @@ struct CameraScreen: View {
                 Image(systemName: "arrow.triangle.2.circlepath.camera")
                 Text("Retaking photo \(index + 1)").font(.subheadline.bold())
                 Spacer()
-                Button("Cancel") { camera.replaceTarget = nil }
+                Button("Cancel") {
+                    Haptics.tap()
+                    camera.replaceTarget = nil
+                }
                     .font(.subheadline.bold())
                     .foregroundStyle(.yellow)
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(Capsule().fill(.ultraThinMaterial))
+            .glass(Capsule())
             .padding(12)
         }
     }
@@ -658,7 +816,7 @@ struct CameraScreen: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
-                .background(Capsule().fill(.ultraThinMaterial))
+                .glass(Capsule())
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
         }
     }
@@ -800,5 +958,20 @@ extension View {
     func upright(_ degrees: Double) -> some View {
         rotationEffect(.degrees(degrees))
             .animation(.easeInOut(duration: 0.3), value: degrees)
+    }
+}
+
+// MARK: - Done button background: solid yellow when ready, glass when not
+
+struct DoneBackground: ViewModifier {
+    let ready: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if ready {
+            content.background(Capsule().fill(Color.yellow))
+        } else {
+            content.glass(Capsule())
+        }
     }
 }
