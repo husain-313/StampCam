@@ -115,7 +115,8 @@ enum Updater {
 
     /// Release notes as plain text (no Markdown stars or headings).
     private static func cleanNotes(_ text: String) -> String {
-        text.replacingOccurrences(of: "**", with: "")
+        (text.components(separatedBy: "\n---").first ?? text)   // the download line under the notes
+            .replacingOccurrences(of: "**", with: "")
             .replacingOccurrences(of: "\r", with: "")
             .components(separatedBy: "\n")
             .map { line -> String in
