@@ -9,7 +9,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 ## How it works
 
 1. **Shoot** — take photos, or add some from your library.
-2. **Tap Done** — all photos are combined into one PDF instantly.
+2. **Tap Done** — the camera is ready again at once while the photos become one PDF quietly in the background.
 3. **Name & share** — pick a name (StampCam suggests one from the text in your photos) and send it anywhere.
 
 ---
@@ -51,7 +51,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 
 ### ✨ Smart file names
 - StampCam reads the text in your photos, like a shop sign, and suggests it as the file name
-- Or **tap any text in your photos** — it's highlighted — to use it as the name
+- It also suggests the area and date (like *Jidhafs – 14 Oct*), with no repeats
 - Works with **Arabic and English**
 - Everything happens on your iPhone — no internet needed, nothing is uploaded
 

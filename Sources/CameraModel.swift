@@ -55,6 +55,13 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
 
     // The current set (main thread)
     @Published private(set) var shots: [Shot] = []
+    /// Photos already handed to a PDF that is being made in the background.
+    /// They stay saved (in case the app closes) but are no longer shown.
+    @Published private(set) var hiddenIDs: Set<UUID> = []
+    /// The photos in the current set (not counting ones going into a PDF).
+    var visibleShots: [Shot] { hiddenIDs.isEmpty ? shots : shots.filter { !hiddenIDs.contains($0.id) } }
+    /// True while a PDF is being made in the background.
+    var isMakingPDF: Bool { !hiddenIDs.isEmpty }
     @Published private(set) var thumbnails: [UUID: UIImage] = [:]
     @Published private(set) var pendingCount = 0
     @Published private(set) var replacingIDs: Set<UUID> = []
@@ -83,9 +90,6 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
 
     // Status
     @Published private(set) var restoredCount = 0
-    @Published private(set) var waitingForLocation = false
-    @Published private(set) var pdfDone = 0
-    @Published private(set) var pdfTotal = 0
 
     /// Set by the screen; used to tag photos with a location and area name.
     weak var location: LocationModel?
@@ -555,22 +559,46 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
 
     // MARK: PDF
 
-    func makePDF(completion: @escaping (URL?) -> Void) {
+    /// Makes the PDF quietly in the background. The photos leave the camera at once;
+    /// they are only deleted after the PDF is saved, and come back if it fails.
+    /// The completion gets the PDF and a suggested name like "Jidhafs – 14 Oct".
+    func makePDF(completion: @escaping (URL?, String?) -> Void) {
+        let included = visibleShots
+        guard !included.isEmpty else { completion(nil, nil); return }
+        let ids = Set(included.map(\.id))
+        let appendingTo = appendTarget
+        hiddenIDs.formUnion(ids)
+        if let target = replaceTarget, ids.contains(target) { replaceTarget = nil }
+
         let wantsLocation = UserDefaults.standard.bool(forKey: Keys.showLocation)
         let locationUsable = !(location?.isDenied ?? true)
-        let missing = shots.contains { needsPlace($0) }
-
         resolvePlaces()
-        if wantsLocation && locationUsable && missing {
-            // Give the area names a few seconds to arrive.
-            waitingForLocation = true
-            waitForPlaces(until: Date().addingTimeInterval(4)) {
-                self.waitingForLocation = false
-                self.buildPDF(completion: completion)
+        let finish = {
+            let current = self.shots.filter { ids.contains($0.id) }
+            self.buildPDF(current, appendingTo: appendingTo) { url in
+                completion(url, url == nil ? nil : Self.areaDateName(current))
             }
-        } else {
-            buildPDF(completion: completion)
         }
+        if wantsLocation && locationUsable && included.contains(where: needsPlace) {
+            // Give the area names a few seconds to arrive (nothing shown on screen).
+            waitForPlaces(ids, until: Date().addingTimeInterval(4), then: finish)
+        } else {
+            finish()
+        }
+    }
+
+    /// "Area – 14 Oct" from the first photo with an area name, or "Photos – 14 Oct".
+    static func areaDateName(_ shots: [Shot]) -> String? {
+        guard let first = shots.first else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "d MMM"
+        let date = formatter.string(from: first.date)
+        let area = shots.lazy
+            .compactMap(\.placeName)
+            .map { $0.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "" }
+            .first { !$0.isEmpty }
+        return "\(area ?? "Photos") – \(date)"
     }
 
     /// Photos still waiting for their area name.
@@ -580,19 +608,19 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         return !(shot.imported == true && shot.location == nil)
     }
 
-    private func waitForPlaces(until deadline: Date, then done: @escaping () -> Void) {
-        if Date() >= deadline || !shots.contains(where: { needsPlace($0) }) {
+    private func waitForPlaces(_ ids: Set<UUID>, until deadline: Date, then done: @escaping () -> Void) {
+        let waiting = shots.contains { ids.contains($0.id) && needsPlace($0) }
+        if Date() >= deadline || !waiting {
             done()
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             self.resolvePlaces()
-            self.waitForPlaces(until: deadline, then: done)
+            self.waitForPlaces(ids, until: deadline, then: done)
         }
     }
 
-    private func buildPDF(completion: @escaping (URL?) -> Void) {
-        let included = shots
+    private func buildPDF(_ included: [Shot], appendingTo: URL?, completion: @escaping (URL?) -> Void) {
         let ids = Set(included.map(\.id))
         let pages = included.map { PDFPageSource(shot: $0, lines: stampLines(for: $0)) }
         rememberStampedPlaces(included)
@@ -601,10 +629,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         let style = StampStyle.current()
         let quality = Quality(rawValue: d.string(forKey: Keys.quality) ?? "") ?? .medium
         let pageSize = PageSize(rawValue: d.string(forKey: Keys.pageSize) ?? "") ?? .photo
-        let appendingTo = appendTarget
         let wantsNumbers = d.bool(forKey: Keys.pageNumbers)
-        pdfDone = 0
-        pdfTotal = pages.count
 
         let run: (Bool?) -> Void = { useAlbum in
           self.processQueue.async {
@@ -623,18 +648,18 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             options.firstNumber = existing + 1
             options.totalNumber = existing + pages.count
             let url = PDFBuilder.build(pages, style: style, quality: quality, pageSize: pageSize,
-                                       options: options, onPage: saveToPhotos) { done in
-                DispatchQueue.main.async { self.pdfDone = done }
-            }
+                                       options: options, onPage: saveToPhotos) { _ in }
             DispatchQueue.main.async {
-                self.pdfTotal = 0
+                self.hiddenIDs.subtract(ids)
                 if url != nil {
-                    // The PDF is safe; clear this set from the iPhone.
+                    // The PDF is safe; clear these photos from the iPhone.
                     self.shots.removeAll { ids.contains($0.id) }
-                    self.replaceTarget = nil
                     ids.forEach { self.removeFiles(for: $0) }
                     self.persist()
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
+                } else {
+                    // Something went wrong: the photos are back in the camera.
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
                 }
                 completion(url)
             }

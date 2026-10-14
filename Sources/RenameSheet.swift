@@ -1,26 +1,26 @@
 //  RenameSheet.swift
-//  Rename a PDF: smart suggestions, or tap any text in the photos to use it as the name.
+//  Rename a PDF: pick one of the smart suggestions, or type a name.
 
 import SwiftUI
 
 struct RenameSheet: View {
     let url: URL
+    /// An extra name to offer, like "Jidhafs – 14 Oct" (area and date of the photos).
+    var extraSuggestion: String? = nil
     /// Called with the final URL (new name, or the same URL if skipped).
     var onFinish: (URL) -> Void
 
     @State private var name: String
     @State private var suggestions: [String] = []
-    @State private var pages: [TextScanner.Page] = []
     @State private var scanning = true
     @State private var failed = false
     @FocusState private var fieldFocused: Bool
 
-    /// Pages read for the suggestions (the first photos), and at most this many shown to tap.
-    private let suggestionPages = 3
-    private let maxPages = 12
+    private let maxSuggestions = 8
 
-    init(url: URL, onFinish: @escaping (URL) -> Void) {
+    init(url: URL, extraSuggestion: String? = nil, onFinish: @escaping (URL) -> Void) {
         self.url = url
+        self.extraSuggestion = extraSuggestion
         self.onFinish = onFinish
         _name = State(initialValue: url.deletingPathExtension().lastPathComponent)
     }
@@ -55,63 +55,36 @@ struct RenameSheet: View {
                 }
 
                 Section {
-                    if pages.isEmpty {
-                        HStack(spacing: 12) {
-                            if scanning {
-                                ProgressView()
-                                Text("Reading text in your photos…")
-                            } else {
-                                Text("No text found in the photos.")
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        Button {
+                            pick(suggestion)
+                        } label: {
+                            HStack {
+                                Text(suggestion)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(2)
+                                Spacer()
+                                if cleanName == FileStore.sanitize(suggestion) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.yellow)
+                                }
                             }
+                        }
+                    }
+                    if scanning {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("Reading your photos…")
                         }
                         .foregroundStyle(.secondary)
-                    } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 12) {
-                                ForEach(pages) { page in
-                                    pageView(page)
-                                }
-                                if scanning {
-                                    ProgressView().frame(width: 60, height: 300)
-                                }
-                            }
-                            .padding(.vertical, 12)
-                            .padding(.horizontal, 16)
-                        }
-                        .listRowInsets(EdgeInsets())
-                    }
-                } header: {
-                    Label("Tap Text in Your Photos", systemImage: "hand.tap")
-                } footer: {
-                    Text("Tap any highlighted text to use it as the name. Swipe to see more photos.")
-                }
-
-                Section {
-                    if suggestions.isEmpty {
-                        Text(scanning ? "Looking for names…" : "No suggestions.")
+                    } else if suggestions.isEmpty {
+                        Text("No suggestions.")
                             .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(suggestions, id: \.self) { suggestion in
-                            Button {
-                                name = suggestion
-                            } label: {
-                                HStack {
-                                    Text(suggestion)
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(2)
-                                    Spacer()
-                                    if cleanName == FileStore.sanitize(suggestion) {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(.yellow)
-                                    }
-                                }
-                            }
-                        }
                     }
                 } header: {
                     Label("Smart Suggestions", systemImage: "sparkles")
                 } footer: {
-                    Text("Your note, and text read from your photos like a shop sign. Everything stays on your iPhone.")
+                    Text("Your note, the place and date, and names read from your photos. Everything stays on your iPhone.")
                 }
             }
             .navigationTitle("Name PDF")
@@ -126,87 +99,46 @@ struct RenameSheet: View {
                         .disabled(cleanName.isEmpty)
                 }
             }
-            .task { await readPages() }
+            .task { await load() }
         }
         .interactiveDismissDisabled()
-    }
-
-    // MARK: Photos with tappable text
-
-    private func pageView(_ page: TextScanner.Page) -> some View {
-        Image(uiImage: page.image)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .overlay {
-                GeometryReader { geo in
-                    ForEach(page.lines) { line in
-                        textBox(line, in: geo.size)
-                    }
-                }
-            }
-            .frame(height: 300)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    /// A yellow box over one line of text; tap it to use that text as the name.
-    private func textBox(_ line: TextScanner.Line, in size: CGSize) -> some View {
-        let rect = CGRect(x: line.box.minX * size.width,
-                          y: line.box.minY * size.height,
-                          width: line.box.width * size.width,
-                          height: line.box.height * size.height)
-        let selected = cleanName == FileStore.sanitize(line.text)
-        return Button {
-            pick(line.text)
-        } label: {
-            RoundedRectangle(cornerRadius: 3)
-                .fill(Color.yellow.opacity(selected ? 0.5 : 0.2))
-                .overlay(RoundedRectangle(cornerRadius: 3)
-                    .stroke(Color.yellow, lineWidth: selected ? 2 : 1))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .frame(width: max(rect.width + 6, 22), height: max(rect.height + 6, 22))
-        .position(x: rect.midX, y: rect.midY)
-        .accessibilityLabel(line.text)
     }
 
     private func pick(_ text: String) {
         name = text
         fieldFocused = false
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Haptics.tick()
     }
 
-    // MARK: Reading
+    // MARK: Suggestions
 
-    private func readPages() async {
-        let count = min(TextScanner.pageCount(url), maxPages)
-        var found: [TextScanner.Found] = []
-        var read = 0
-        for index in 0..<count {
-            guard let page = await TextScanner.readPage(url, index: index) else { continue }
-            if !page.lines.isEmpty {
-                withAnimation(.easeOut(duration: 0.2)) { pages.append(page) }
-            }
-            if read < suggestionPages {
-                found += page.found
-                read += 1
-                if read == suggestionPages { updateSuggestions(found) }
-            }
+    private func load() async {
+        // Quick ones first, so the list is never empty while the photos are read.
+        suggestions = merge(read: [])
+        let read = await TextScanner.suggestions(for: url)
+        withAnimation(.easeOut(duration: 0.2)) {
+            suggestions = merge(read: read)
+            scanning = false
         }
-        if read < suggestionPages { updateSuggestions(found) }
-        scanning = false
     }
 
-    private func updateSuggestions(_ found: [TextScanner.Found]) {
-        var list = TextScanner.suggestions(from: found)
-        // The note from Settings is usually the best name, so it comes first.
-        let note = StampText.note
-        if !note.isEmpty {
-            let key = TextScanner.normalize(note)
-            list.removeAll { TextScanner.normalize($0) == key }
-            list.insert(note, at: 0)
+    /// Note first, then names read from the photos, then area and date. No repeats.
+    private func merge(read: [String]) -> [String] {
+        var list: [String] = []
+        var seen = Set<String>()
+        func add(_ text: String?) {
+            guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
+            let key = TextScanner.normalize(text)
+            guard !key.isEmpty, !seen.contains(key), list.count < maxSuggestions else { return }
+            seen.insert(key)
+            list.append(text)
         }
-        suggestions = list
+        add(StampText.note)
+        // Keep a spot for the area and date at the end.
+        let readLimit = maxSuggestions - (extraSuggestion == nil ? 0 : 1)
+        for text in read where list.count < readLimit { add(text) }
+        add(extraSuggestion)
+        return list
     }
 
     private func save() {

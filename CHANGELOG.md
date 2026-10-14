@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.6 — Quiet and clean
+- **Silent PDF:** tap Done and the camera is ready again at once. The PDF is made quietly in the background, with no "Creating PDF" or "Adding location" messages. The Name PDF screen appears when it's ready. Your photos are only deleted after the PDF is saved; if something goes wrong they come back.
+- **Name PDF is simpler:** no photos or yellow boxes, just a clean list of smart suggestions.
+- **Better suggestions:**
+  - Reads all your photos, not just the first three.
+  - Text that appears in several photos ranks higher.
+  - Skips junk like "Made in…", websites, emails, phone numbers and prices.
+  - New: the area and date, like *Jidhafs – 14 Oct*.
+  - No repeats (even when the same words differ in capitals or Arabic letter forms).
+  - Up to 8 suggestions.
+
 ## 2.5
 - **Camera Control (iPhone 16 and newer):** press to take a photo, and now slide on it for **zoom** or **brightness**, like the built-in Camera app. The on-screen zoom and brightness follow along.
 - **Camera tips:** a short card the first time you open the app explains the gestures (swipe for lens, hold for zoom dial, tap and slide for brightness, double-tap to switch cameras). Show it again from Settings.

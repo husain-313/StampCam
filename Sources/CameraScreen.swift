@@ -28,7 +28,6 @@ struct CameraScreen: View {
     @State private var toast: String?
     @State private var blink = false
     @State private var pinchStart: CGFloat?
-    @State private var isBuilding = false
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var focusPoint: CGPoint?
     @State private var focusHide: DispatchWorkItem?
@@ -44,14 +43,14 @@ struct CameraScreen: View {
     @Environment(\.scenePhase) private var scenePhase
 
     enum ActiveSheet: Identifiable {
-        case settings, review, files, share(URL), rename(URL)
+        case settings, review, files, share(URL), rename(URL, String?)
         var id: String {
             switch self {
             case .settings: return "settings"
             case .review: return "review"
             case .files: return "files"
             case .share(let url): return "share-\(url.absoluteString)"
-            case .rename(let url): return "rename-\(url.absoluteString)"
+            case .rename(let url, _): return "rename-\(url.absoluteString)"
             }
         }
     }
@@ -59,10 +58,11 @@ struct CameraScreen: View {
     /// What a one-finger drag on the picture does.
     enum DragMode { case brightness, lens }
 
-    private var totalCount: Int { camera.shots.count + camera.pendingCount }
+    private var totalCount: Int { camera.visibleShots.count + camera.pendingCount }
     /// The phone is straight (grid on): gives a small click so you can feel it.
     private var isLevel: Bool { showGrid && !orientation.isFlat && abs(orientation.tilt) < 1 }
-    private var canFinish: Bool { !camera.shots.isEmpty && camera.pendingCount == 0 && !isBuilding }
+    /// Done is ready when there are photos and no PDF is still being made in the background.
+    private var canFinish: Bool { !camera.visibleShots.isEmpty && camera.pendingCount == 0 && !camera.isMakingPDF }
     /// Location is needed for the area name, the coordinates or the direction.
     private var needsLocation: Bool { showLocation || showCoordinates || showHeading }
 
@@ -174,7 +174,7 @@ struct CameraScreen: View {
             focusHide?.cancel()
             withAnimation(.easeOut(duration: 0.25)) { focusPoint = nil }
         }
-        .onChange(of: camera.shots.count) { old, new in
+        .onChange(of: camera.visibleShots.count) { old, new in
             guard new > old else { return }
             withAnimation(.spring(response: 0.25, dampingFraction: 0.5)) { thumbBounce = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -230,8 +230,8 @@ struct CameraScreen: View {
                 ShareSheet(url: url)
                     .presentationDetents([.medium, .large])
                     .ignoresSafeArea()
-            case .rename(let url):
-                RenameSheet(url: url) { finalURL in
+            case .rename(let url, let extra):
+                RenameSheet(url: url, extraSuggestion: extra) { finalURL in
                     sheet = nil
                     afterSaved(finalURL, delay: 0.5)
                 }
@@ -464,7 +464,6 @@ struct CameraScreen: View {
                 .shadow(color: .white.opacity(0.15), radius: 8)
             }
             .buttonStyle(ShutterStyle())
-            .disabled(isBuilding)
             .accessibilityLabel("Take Photo")
 
             Spacer()
@@ -473,17 +472,11 @@ struct CameraScreen: View {
                 Haptics.tap()
                 createPDF()
             } label: {
-                Group {
-                    if isBuilding {
-                        ProgressView().tint(.black)
-                    } else {
-                        Text("Done")
-                            .font(.system(size: 16, weight: .bold))
-                    }
-                }
+                Text("Done")
+                    .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(canFinish ? Color.black : Color.white.opacity(0.4))
                 .frame(width: 76, height: 44)
-                .modifier(DoneBackground(ready: canFinish || isBuilding))
+                .modifier(DoneBackground(ready: canFinish))
                 .upright(orientation.iconAngle)
                 .animation(.easeOut(duration: 0.2), value: canFinish)
             }
@@ -495,7 +488,7 @@ struct CameraScreen: View {
     private var thumbnail: some View {
         ZStack(alignment: .topTrailing) {
             Group {
-                if let last = camera.shots.last, let thumb = camera.thumbnails[last.id] {
+                if let last = camera.visibleShots.last, let thumb = camera.thumbnails[last.id] {
                     Image(uiImage: thumb).resizable().scaledToFill()
                 } else {
                     Color.white.opacity(0.1)
@@ -769,7 +762,7 @@ struct CameraScreen: View {
     @ViewBuilder
     private var retakeBanner: some View {
         if let target = camera.replaceTarget,
-           let index = camera.shots.firstIndex(where: { $0.id == target }) {
+           let index = camera.visibleShots.firstIndex(where: { $0.id == target }) {
             HStack(spacing: 10) {
                 Image(systemName: "arrow.triangle.2.circlepath.camera")
                 Text("Retaking photo \(index + 1)").font(.subheadline.bold())
@@ -815,15 +808,9 @@ struct CameraScreen: View {
         }
     }
 
-    private var statusText: String? {
-        if camera.waitingForLocation { return "Adding location…" }
-        if camera.pdfTotal > 0 { return "Creating PDF \(camera.pdfDone) of \(camera.pdfTotal)" }
-        return toast
-    }
-
     @ViewBuilder
     private var toastView: some View {
-        if let toast = statusText {
+        if let toast {
             Text(toast)
                 .font(.headline)
                 .foregroundStyle(.white)
@@ -837,7 +824,6 @@ struct CameraScreen: View {
     // MARK: Actions
 
     private func shutter() {
-        guard !isBuilding else { return }
         let retaking = camera.replaceTarget != nil
         camera.capture(rotationAngle: orientation.captureAngle)
 
@@ -851,35 +837,38 @@ struct CameraScreen: View {
         }
     }
 
+    /// Done: the photos leave the camera at once and the PDF is made quietly in the
+    /// background. The name sheet (or share sheet) appears when the PDF is ready.
     private func createPDF() {
         guard canFinish else { return }
-        isBuilding = true
-        let hadSheet = sheet != nil
-        sheet = nil
+        if sheet != nil { sheet = nil }
 
         let appendTo = camera.appendTarget
-        camera.makePDF { url in
-            isBuilding = false
+        camera.appendTarget = nil
+        camera.makePDF { url, areaName in
             guard let url else {
+                camera.appendTarget = appendTo
                 showToast("Couldn't create PDF")
                 return
             }
+            // Something else may be open by now; close it first.
+            let delay = sheet != nil ? 0.5 : 0
+            if sheet != nil { sheet = nil }
             if let appendTo {
                 // Adding to an existing PDF: merge, keep its name.
-                camera.appendTarget = nil
                 if FileStore.append(url, to: appendTo) {
-                    afterSaved(appendTo, delay: hadSheet ? 0.5 : 0)
+                    afterSaved(appendTo, delay: delay)
                 } else {
                     showToast("Couldn't add to the PDF; saved as a new one")
                 }
                 return
             }
             if askNameAfterDone {
-                DispatchQueue.main.asyncAfter(deadline: .now() + (hadSheet ? 0.5 : 0)) {
-                    sheet = .rename(url)
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    sheet = .rename(url, areaName)
                 }
             } else {
-                afterSaved(url, delay: hadSheet ? 0.5 : 0)
+                afterSaved(url, delay: delay)
             }
         }
     }
