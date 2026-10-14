@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.6.1
+- **Fix: deleting a PDF from inside it now works.** The trash button on an open PDF asks "Delete this PDF?" in a clear alert and deletes it, then goes back to your list. Swipe and long-press delete use the same alert.
+
 ## 2.6 — Quiet and clean
 - **Silent PDF:** tap Done and the camera is ready again at once. The PDF is made quietly in the background, with no "Creating PDF" or "Adding location" messages. The Name PDF screen appears when it's ready. Your photos are only deleted after the PDF is saved; if something goes wrong they come back.
 - **Name PDF is simpler:** no photos or yellow boxes, just a clean list of smart suggestions.
