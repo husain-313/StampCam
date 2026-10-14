@@ -15,9 +15,9 @@ struct ReviewView: View {
         NavigationStack {
             ScrollView {
               VStack(spacing: 0) {
-                if !camera.shots.isEmpty { summary.padding([.horizontal, .top]) }
+                if !camera.visibleShots.isEmpty { summary.padding([.horizontal, .top]) }
                 LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(Array(camera.shots.enumerated()), id: \.element.id) { index, shot in
+                    ForEach(Array(camera.visibleShots.enumerated()), id: \.element.id) { index, shot in
                         NavigationLink(value: shot.id) {
                             cell(shot, number: index + 1)
                         }
@@ -50,9 +50,9 @@ struct ReviewView: View {
               }
             }
             .safeAreaInset(edge: .bottom) {
-                if !camera.shots.isEmpty {
+                if !camera.visibleShots.isEmpty {
                     VStack(spacing: 8) {
-                        if camera.shots.count > 1 {
+                        if camera.visibleShots.count > 1 {
                             Text("Press and drag a photo to change the order. Tap one to add a note.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
@@ -76,13 +76,13 @@ struct ReviewView: View {
                 }
             }
             .overlay {
-                if camera.shots.isEmpty && camera.pendingCount == 0 {
+                if camera.visibleShots.isEmpty && camera.pendingCount == 0 {
                     ContentUnavailableView("No Photos",
                                            systemImage: "photo.on.rectangle",
                                            description: Text("Tap Add Photos to keep shooting."))
                 }
             }
-            .navigationTitle(camera.shots.count == 1 ? "1 Photo" : "\(camera.shots.count) Photos")
+            .navigationTitle(camera.visibleShots.count == 1 ? "1 Photo" : "\(camera.visibleShots.count) Photos")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: UUID.self) { id in
                 ShotDetailView(camera: camera, shotID: id, onRetake: { onRetake(id) })
@@ -102,15 +102,15 @@ struct ReviewView: View {
 
     /// Short summary of the set: how many photos, when and where.
     private var summary: some View {
-        let places = Array(Set(camera.shots.compactMap(\.placeName).filter { !$0.isEmpty })).sorted()
+        let places = Array(Set(camera.visibleShots.compactMap(\.placeName).filter { !$0.isEmpty })).sorted()
         return VStack(alignment: .leading, spacing: 6) {
-            Label(StampText.dateRange(camera.shots.map(\.date)), systemImage: "calendar")
+            Label(StampText.dateRange(camera.visibleShots.map(\.date)), systemImage: "calendar")
             if !places.isEmpty {
                 Label(places.count == 1 ? places[0] : "\(places[0]) + \(places.count - 1) more",
                       systemImage: "mappin.and.ellipse")
                     .lineLimit(1)
             }
-            let notes = camera.shots.filter { $0.note != nil }.count
+            let notes = camera.visibleShots.filter { $0.note != nil }.count
             if notes > 0 {
                 Label(notes == 1 ? "1 note" : "\(notes) notes", systemImage: "text.bubble")
             }
@@ -190,9 +190,9 @@ struct ShotDetailView: View {
     @State private var editingNote = false
     @State private var noteDraft = ""
 
-    private var index: Int? { camera.shots.firstIndex { $0.id == shotID } }
+    private var index: Int? { camera.visibleShots.firstIndex { $0.id == shotID } }
 
-    private var shot: Shot? { index.map { camera.shots[$0] } }
+    private var shot: Shot? { index.map { camera.visibleShots[$0] } }
 
     /// Re-render the preview when the area name arrives.
     private var previewKey: String {
@@ -236,7 +236,7 @@ struct ShotDetailView: View {
             }
         }
         .background(Color.black.ignoresSafeArea())
-        .navigationTitle(index.map { "\(noun) \($0 + 1) of \(camera.shots.count)" } ?? "")
+        .navigationTitle(index.map { "\(noun) \($0 + 1) of \(camera.visibleShots.count)" } ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .bottomBar) {

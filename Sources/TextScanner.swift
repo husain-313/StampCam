@@ -1,29 +1,14 @@
 //  TextScanner.swift
-//  Reads the text in a PDF's photos (on-device, Apple Vision) and suggests file names.
-//  Big, centered text (usually the sign) comes first, and two-line signs are joined.
+//  Reads the text in all of a PDF's photos (on-device, Apple Vision) and suggests file names.
+//  Big, centered text that shows up in several photos (usually the sign) comes first;
+//  two-line signs are joined, and things that make poor names (phone numbers, websites,
+//  prices, "Made in …") are skipped.
 
 import UIKit
 import Vision
 import PDFKit
 
 enum TextScanner {
-    /// One line of text found in a photo, for tapping in the rename screen.
-    struct Line: Identifiable {
-        let id = UUID()
-        let text: String
-        /// Normalized (0...1), origin top-left, like the screen.
-        let box: CGRect
-    }
-
-    /// One PDF page with its picture and the text lines found on it.
-    struct Page: Identifiable {
-        let id: Int            // page index in the PDF
-        let image: UIImage
-        let lines: [Line]
-        /// Raw results, used for the name suggestions.
-        let found: [Found]
-    }
-
     struct Found {
         let text: String
         let box: CGRect         // normalized, origin bottom-left (Vision)
@@ -32,69 +17,32 @@ enum TextScanner {
         var merged = false
     }
 
-    /// Number of pages in the PDF (0 if it can't be opened).
-    static func pageCount(_ url: URL) -> Int {
-        PDFDocument(url: url)?.pageCount ?? 0
-    }
-
-    /// Reads the text on one page. Nil for pages without a photo (like an old cover page).
-    static func readPage(_ url: URL, index: Int) async -> Page? {
+    /// The best file names from the text in the PDF's photos (most likely first, at most 8).
+    static func suggestions(for url: URL, maxPages: Int = 30) async -> [String] {
         await Task.detached(priority: .userInitiated) {
-            TextScanner.read(url, index: index)
+            TextScanner.scan(url, maxPages: maxPages)
         }.value
-    }
-
-    /// Best file names from the text found on some pages.
-    static func suggestions(from found: [Found]) -> [String] {
-        rank(found)
     }
 
     // MARK: Reading
 
-    private static func read(_ url: URL, index: Int) -> Page? {
-        guard let document = PDFDocument(url: url), let page = document.page(at: index) else { return nil }
-        // Skip the cover page that version 2.0 added (it's real text, not a photo).
-        if page.string?.contains(PDFBuilder.coverMark) == true { return nil }
-
-        let bounds = page.bounds(for: .mediaBox)
-        let longest = max(bounds.width, bounds.height)
-        guard longest > 0 else { return nil }
-        let readSize = CGSize(width: bounds.width * 1800 / longest, height: bounds.height * 1800 / longest)
-        guard let image = page.thumbnail(of: readSize, for: .mediaBox).cgImage else { return nil }
-        let found = recognize(image, page: index)
-
-        // A smaller copy to show on screen.
-        let showSize = CGSize(width: bounds.width * 900 / longest, height: bounds.height * 900 / longest)
-        let shown = page.thumbnail(of: showSize, for: .mediaBox)
-
-        return Page(id: index, image: shown, lines: tapLines(found), found: found)
-    }
-
-    /// Text to show as tap targets: no page numbers, and no small boxes hidden under a bigger one
-    /// (curved text like a round logo is often read several times).
-    private static func tapLines(_ found: [Found]) -> [Line] {
-        let candidates = found
-            .filter { !$0.text.isEmpty && $0.confidence >= 0.3 && !isPageNumber($0.text) }
-            .sorted { $0.box.width * $0.box.height > $1.box.width * $1.box.height }
-        var kept: [Found] = []
-        for item in candidates {
-            let area = item.box.width * item.box.height
-            let hidden = kept.contains { other in
-                let overlap = other.box.intersection(item.box)
-                return !overlap.isNull && overlap.width * overlap.height > 0.6 * area
-            }
-            if !hidden { kept.append(item) }
+    private static func scan(_ url: URL, maxPages: Int) -> [String] {
+        guard let document = PDFDocument(url: url) else { return [] }
+        var found: [Found] = []
+        var scanned = 0
+        for index in 0..<document.pageCount where scanned < maxPages {
+            guard let page = document.page(at: index) else { continue }
+            // Skip the cover page that version 2.0 added (it's real text, not a photo).
+            if page.string?.contains(PDFBuilder.coverMark) == true { continue }
+            scanned += 1
+            let bounds = page.bounds(for: .mediaBox)
+            let longest = max(bounds.width, bounds.height)
+            guard longest > 0 else { continue }
+            let size = CGSize(width: bounds.width * 1600 / longest, height: bounds.height * 1600 / longest)
+            guard let image = page.thumbnail(of: size, for: .mediaBox).cgImage else { continue }
+            found += recognize(image, page: index)
         }
-        return kept.map { item in
-            Line(text: String(item.text.prefix(80)),
-                 box: CGRect(x: item.box.minX, y: 1 - item.box.maxY,
-                             width: item.box.width, height: item.box.height))
-        }
-    }
-
-    /// "2 / 3": the page number StampCam prints on PDF pages.
-    private static func isPageNumber(_ text: String) -> Bool {
-        text.range(of: #"^\s*\d+\s*/\s*\d+\s*$"#, options: .regularExpression) != nil
+        return rank(found)
     }
 
     private static func recognize(_ image: CGImage, page: Int) -> [Found] {
@@ -143,7 +91,17 @@ enum TextScanner {
             }
         }
 
-        let sorted = candidates.sorted { score($0) > score($1) }
+        // Text seen in several photos (like a shop name shot from a few angles) is more likely the name.
+        var pagesByKey: [String: Set<Int>] = [:]
+        for item in candidates {
+            pagesByKey[normalize(item.text), default: []].insert(item.page)
+        }
+        func total(_ item: Found) -> CGFloat {
+            let seenIn = CGFloat(pagesByKey[normalize(item.text)]?.count ?? 1)
+            return score(item) * (1 + 0.35 * (seenIn - 1))
+        }
+
+        let sorted = candidates.sorted { total($0) > total($1) }
 
         var result: [String] = []
         var seen = Set<String>()
@@ -151,7 +109,7 @@ enum TextScanner {
             let key = normalize(item.text)
             guard !key.isEmpty, seen.insert(key).inserted else { continue }
             result.append(String(item.text.prefix(60)))
-            if result.count == 6 { break }
+            if result.count == 8 { break }
         }
         return result
     }
@@ -198,6 +156,8 @@ enum TextScanner {
         // English lines: most words should be real words or names (drops scribbles read as text).
         if hasLatin && !looksLikeEnglish(text) { return false }
 
+        if isPoorName(text) { return false }
+
         // Skip our own stamp: the date/time and area names printed on the photos.
         if text.range(of: #"\d{1,4}[-/:.]\d{1,2}[-/:.]\d{1,4}"#, options: .regularExpression) != nil { return false }
         let stamped = UserDefaults.standard.stringArray(forKey: Keys.stampedPlaces) ?? []
@@ -207,8 +167,31 @@ enum TextScanner {
 
     // MARK: Helpers
 
+    /// Things that rarely make a good file name.
+    private static func isPoorName(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        // Websites, emails, social handles.
+        if lower.contains("www") || lower.contains("http") || lower.contains(".com") || lower.contains("@") { return true }
+        // Phone numbers (7+ digits).
+        if text.filter(\.isNumber).count >= 7 { return true }
+        // Prices.
+        if text.range(of: #"\d+([.,]\d+)?\s*(bd|bhd|sar|aed|kwd|usd|\$|€|د\.ب|ريال|درهم)"#,
+                      options: [.regularExpression, .caseInsensitive]) != nil { return true }
+        // Common small print.
+        let smallPrint = ["made in", "ingredients", "best before", "expiry", "exp.", "net wt", "barcode",
+                          "all rights", "copyright", "no smoking", "no parking"]
+        if smallPrint.contains(where: { lower.contains($0) }) { return true }
+        // Door and sign words on their own.
+        let signWords: Set<String> = ["push", "pull", "exit", "open", "closed", "entrance", "toilet", "wc",
+                                      "ادفع", "اسحب", "مخرج", "مدخل", "مفتوح", "مغلق"]
+        return signWords.contains(lower.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces)))
+    }
+
     private static func clean(_ text: String) -> String {
-        text.components(separatedBy: .whitespacesAndNewlines)
+        // Turns special Arabic letter shapes into normal letters, so the same word always matches.
+        text.precomposedStringWithCompatibilityMapping
+            .replacingOccurrences(of: "\u{0640}", with: "")      // tatweel (ـ)
+            .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
     }
@@ -235,7 +218,7 @@ enum TextScanner {
     }
 
     static func normalize(_ text: String) -> String {
-        let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        let folded = text.precomposedStringWithCompatibilityMapping.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         var kept = String.UnicodeScalarView()
         kept.append(contentsOf: folded.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
         return String(kept)
