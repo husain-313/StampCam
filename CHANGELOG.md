@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5
+- **Camera Control (iPhone 16 and newer):** press to take a photo, and now slide on it for **zoom** or **brightness**, like the built-in Camera app. The on-screen zoom and brightness follow along.
+- **Camera tips:** a short card the first time you open the app explains the gestures (swipe for lens, hold for zoom dial, tap and slide for brightness, double-tap to switch cameras). Show it again from Settings.
+- **Glass sheets:** Settings, Review, Your PDFs and Name PDF open on frosted glass over the camera.
+
+
 ## 2.4 — Pro camera look
 - **Glass controls:** the top and bottom controls sit on glass (Apple's Liquid Glass on iOS 26, frosted glass on older iOS).
 - **Haptics:** a light tap on every camera button, a click when changing lens, and a click when the phone is level (grid on).

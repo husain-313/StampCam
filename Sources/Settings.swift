@@ -26,6 +26,8 @@ enum Keys {
     static let showCoordinates = "showCoordinates"
     static let showHeading = "showHeading"
     static let pageNumbers = "pageNumbers"
+    // 2.5
+    static let seenCameraTips = "seenCameraTips"
 }
 
 // MARK: - Defaults
