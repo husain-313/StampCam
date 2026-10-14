@@ -1,0 +1,28 @@
+# Publishes the Android app on this page (the Android code stays private),
+# so "Check for Updates" in the Android app can find it.
+name: Publish Android build
+
+on:
+  push:
+    branches: [android-builds]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read version
+        id: version
+        run: echo "version=$(tr -d ' \n' < version.txt)" >> "$GITHUB_OUTPUT"
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ steps.version.outputs.version }}
+          target_commitish: android-builds
+          name: StampCam for Android ${{ steps.version.outputs.version }}
+          body_path: notes.md
+          files: StampCam.apk
+          make_latest: false
