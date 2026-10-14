@@ -73,14 +73,19 @@ jobs:
           name: StampCam-ipa
           path: StampCam.ipa
 
+      - name: Release notes from CHANGELOG
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          awk -v v="$VERSION" '/^## /{ if (f) exit; split($0, a, " "); if (a[2] == v) f = 1; next } f' CHANGELOG.md > notes.md
+          printf '\n---\nDownload **%s** below. %s\n' "StampCam.ipa" "Install it with your signing app (Signulous, AltStore, Sideloadly). Requires iOS 17 or later." >> notes.md
+          cat notes.md
+
       - name: Publish to Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: StampCam ${{ steps.version.outputs.version }}
-          body: |
-            Download **StampCam.ipa** below and install it with a signing service or tool (Signulous, AltStore, Sideloadly).
-            Requires iOS 17 or later.
+          body_path: notes.md
           files: StampCam.ipa
           prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           make_latest: ${{ steps.version.outputs.prerelease != 'true' }}

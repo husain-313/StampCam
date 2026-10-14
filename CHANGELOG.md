@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.7 — About & Updates
+- **About page** (Settings → About StampCam): version and build date, a privacy note, what StampCam is built on, and Developed by husain-313.
+- **Check for Updates:** finds the newest version on GitHub, shows what's new, and downloads it. Then open it with your signing app (like Signulous) to install.
+- **Copy App Info:** copies the version and your iPhone model in one tap, for reporting a problem.
+
 ## 2.6.1
 - **Fix: deleting a PDF from inside it now works.** The trash button on an open PDF asks "Delete this PDF?" in a clear alert and deletes it, then goes back to your list. Swipe and long-press delete use the same alert.
 
