@@ -23,7 +23,6 @@ struct SettingsView: View {
     @AppStorage(Keys.stampNote) private var stampNote = ""
     @AppStorage(Keys.showCoordinates) private var showCoordinates = false
     @AppStorage(Keys.showHeading) private var showHeading = false
-    @AppStorage(Keys.pageNumbers) private var pageNumbers = true
     @AppStorage(Keys.seenCameraTips) private var seenCameraTips = false
 
     @Environment(\.dismiss) private var dismiss
@@ -131,7 +130,6 @@ struct SettingsView: View {
                     Picker("Page Size", selection: $pageSize) {
                         ForEach(PageSize.allCases) { Text($0.title).tag($0.rawValue) }
                     }
-                    Toggle("Page Numbers", isOn: $pageNumbers)
                     Toggle("Name File After Done", isOn: $askNameAfterDone)
                     Toggle("Share After Done", isOn: $shareAfterDone)
                 } header: {

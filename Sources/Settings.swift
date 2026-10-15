@@ -25,7 +25,6 @@ enum Keys {
     static let stampNote = "stampNote"
     static let showCoordinates = "showCoordinates"
     static let showHeading = "showHeading"
-    static let pageNumbers = "pageNumbers"
     // 2.5
     static let seenCameraTips = "seenCameraTips"
 }
@@ -60,7 +59,6 @@ enum Defaults {
             Keys.stampNote: "",
             Keys.showCoordinates: false,
             Keys.showHeading: false,
-            Keys.pageNumbers: true
         ])
     }
 }

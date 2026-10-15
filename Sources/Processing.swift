@@ -166,13 +166,6 @@ struct PDFPageSource {
     let lines: [String]
 }
 
-struct PDFOptions {
-    var pageNumbers = false
-    /// Number of the first photo page (higher when adding to an existing PDF).
-    var firstNumber = 1
-    var totalNumber = 0
-}
-
 enum PDFBuilder {
     static let a4 = CGSize(width: 595.2, height: 841.8)
     /// Printed on the cover page of PDFs made with version 2.0 (so name suggestions can skip it).
@@ -184,7 +177,6 @@ enum PDFBuilder {
                       style: StampStyle,
                       quality: Quality,
                       pageSize: PageSize,
-                      options: PDFOptions = PDFOptions(),
                       onPage: ((Shot, Data) -> Void)? = nil,
                       progress: @escaping (Int) -> Void) -> URL? {
         guard !pages.isEmpty else { return nil }
@@ -203,11 +195,8 @@ enum PDFBuilder {
                               let image = UIImage(data: data) else { return }
                         onPage?(page.shot, data)      // e.g. also save to Photos
 
-                        let number: String? = options.pageNumbers
-                            ? "\(options.firstNumber + index) / \(max(options.totalNumber, options.firstNumber + index))"
-                            : nil
                         let caption: String? = (page.shot.note?.isEmpty == false) ? page.shot.note : nil
-                        drawPage(image, caption: caption, number: number, pageSize: pageSize, ctx: ctx)
+                        drawPage(image, caption: caption, pageSize: pageSize, ctx: ctx)
                         written += 1
                     }
                     progress(index + 1)
@@ -244,7 +233,7 @@ enum PDFBuilder {
                                options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height)
     }
 
-    private static func drawPage(_ image: UIImage, caption: String?, number: String?,
+    private static func drawPage(_ image: UIImage, caption: String?,
                                  pageSize: PageSize, ctx: UIGraphicsPDFRendererContext) {
         let landscape = image.size.width > image.size.height
         switch pageSize {
@@ -272,16 +261,12 @@ enum PDFBuilder {
                 text.draw(with: CGRect(x: 20, y: photoRect.maxY + 14, width: photoRect.width - 40, height: textHeightValue),
                           options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
             }
-            if let number {
-                drawNumberPill(number, centerX: photoRect.midX, bottom: photoRect.maxY - 12)
-            }
         case .a4:
             // Landscape photos get a landscape A4 page.
             let a4Size = landscape ? CGSize(width: a4.height, height: a4.width) : a4
             let page = CGRect(origin: .zero, size: a4Size)
             ctx.beginPage(withBounds: page, pageInfo: [:])
             var area = page.insetBy(dx: 24, dy: 24)
-            area.size.height -= number == nil ? 0 : 14          // room for the page number
             if let caption {
                 let text = captionText(caption)
                 let h = textHeight(text, width: area.width - 20)
@@ -293,30 +278,9 @@ enum PDFBuilder {
             } else {
                 image.draw(in: fit(image.size, in: area))
             }
-            if let number {
-                let text = NSAttributedString(string: number, attributes: [
-                    .font: UIFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium),
-                    .foregroundColor: UIColor(white: 0.45, alpha: 1)
-                ])
-                let size = text.size()
-                text.draw(at: CGPoint(x: page.midX - size.width / 2, y: page.maxY - 22))
-            }
         }
     }
 
-    /// Small dark pill with the page number, on top of the photo.
-    private static func drawNumberPill(_ number: String, centerX: CGFloat, bottom: CGFloat) {
-        let text = NSAttributedString(string: number, attributes: [
-            .font: UIFont.monospacedDigitSystemFont(ofSize: 9, weight: .semibold),
-            .foregroundColor: UIColor.white
-        ])
-        let size = text.size()
-        let pill = CGRect(x: centerX - size.width / 2 - 8, y: bottom - size.height - 6,
-                          width: size.width + 16, height: size.height + 6)
-        UIColor.black.withAlphaComponent(0.45).setFill()
-        UIBezierPath(roundedRect: pill, cornerRadius: pill.height / 2).fill()
-        text.draw(at: CGPoint(x: pill.minX + 8, y: pill.minY + 3))
-    }
 
     private static func fit(_ size: CGSize, in rect: CGRect) -> CGRect {
         let s = min(rect.width / size.width, rect.height / size.height)

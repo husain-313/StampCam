@@ -66,7 +66,6 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 ### ⚙️ Settings
 - Photo quality: High, Medium or Small (smaller = smaller PDF)
 - PDF page size: fit to the photo, or A4 with margins for printing
-- **Page numbers**
 - Ask for a name after Done, and open the share sheet automatically
 
 ---

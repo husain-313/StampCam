@@ -562,7 +562,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     /// Makes the PDF quietly in the background. The photos leave the camera at once;
     /// they are only deleted after the PDF is saved, and come back if it fails.
     /// The completion gets the PDF and a suggested name like "Jidhafs – 14 Oct".
-    /// [appendingTo]: the existing PDF these photos will be added to, so page numbers carry on.
+    /// [appendingTo]: the existing PDF these photos will be added to.
     func makePDF(appendingTo: URL?, completion: @escaping (URL?, String?) -> Void) {
         let included = visibleShots
         guard !included.isEmpty else { completion(nil, nil); return }
@@ -629,7 +629,6 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         let style = StampStyle.current()
         let quality = Quality(rawValue: d.string(forKey: Keys.quality) ?? "") ?? .medium
         let pageSize = PageSize(rawValue: d.string(forKey: Keys.pageSize) ?? "") ?? .photo
-        let wantsNumbers = d.bool(forKey: Keys.pageNumbers)
 
         let run: (Bool?) -> Void = { useAlbum in
           self.processQueue.async {
@@ -641,14 +640,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                     }
                 }
             }
-            // Adding to an existing PDF: page numbers carry on.
-            let existing = appendingTo.flatMap { PDFDocument(url: $0)?.pageCount } ?? 0
-            var options = PDFOptions()
-            options.pageNumbers = wantsNumbers
-            options.firstNumber = existing + 1
-            options.totalNumber = existing + pages.count
             let url = PDFBuilder.build(pages, style: style, quality: quality, pageSize: pageSize,
-                                       options: options, onPage: saveToPhotos) { _ in }
+                                       onPage: saveToPhotos) { _ in }
             DispatchQueue.main.async {
                 self.hiddenIDs.subtract(ids)
                 if url != nil {
