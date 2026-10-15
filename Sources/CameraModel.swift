@@ -562,11 +562,11 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     /// Makes the PDF quietly in the background. The photos leave the camera at once;
     /// they are only deleted after the PDF is saved, and come back if it fails.
     /// The completion gets the PDF and a suggested name like "Jidhafs – 14 Oct".
-    func makePDF(completion: @escaping (URL?, String?) -> Void) {
+    /// [appendingTo]: the existing PDF these photos will be added to, so page numbers carry on.
+    func makePDF(appendingTo: URL?, completion: @escaping (URL?, String?) -> Void) {
         let included = visibleShots
         guard !included.isEmpty else { completion(nil, nil); return }
         let ids = Set(included.map(\.id))
-        let appendingTo = appendTarget
         hiddenIDs.formUnion(ids)
         if let target = replaceTarget, ids.contains(target) { replaceTarget = nil }
 

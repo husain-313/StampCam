@@ -845,7 +845,7 @@ struct CameraScreen: View {
 
         let appendTo = camera.appendTarget
         camera.appendTarget = nil
-        camera.makePDF { url, areaName in
+        camera.makePDF(appendingTo: appendTo) { url, areaName in
             guard let url else {
                 camera.appendTarget = appendTo
                 showToast("Couldn't create PDF")

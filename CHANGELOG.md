@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.7.1
+- **Fix: page numbers when adding photos to an existing PDF.** New pages carry on from the old ones (like 4 / 4 after 3 pages) instead of starting again at 1 / 1. This broke in 2.6.
+
 ## 2.7 — About & Updates
 - **About page** (Settings → About StampCam): version and build date, a privacy note, what StampCam is built on, and Developed by Husain Helal.
 - **Check for Updates:** finds the newest version on GitHub, shows what's new, and downloads it. Then open it with your signing app (like Signulous) to install.
