@@ -228,7 +228,7 @@ struct PDFCard: View {
                 .foregroundStyle(.secondary)
         }
         .contentShape(Rectangle())
-        .task(id: file.url) { await load() }
+        .task(id: file) { await load() }
     }
 
     private func load() async {
@@ -255,9 +255,13 @@ struct PDFDetailView: View {
     /// Called after you confirm; deletes the file and goes back to the list.
     var onDelete: () -> Void
     @State private var confirmDelete = false
+    @State private var arranging = false
+    /// Changes after the pages are rearranged, so the PDF is shown again.
+    @State private var version = 0
 
     var body: some View {
         PDFKitView(url: file.url)
+            .id(version)
             .ignoresSafeArea(edges: .bottom)
             .navigationTitle(file.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -274,6 +278,10 @@ struct PDFDetailView: View {
                         Image(systemName: "plus.rectangle.on.rectangle")
                     }
                     .accessibilityLabel("Add Photos")
+                    Button { arranging = true } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .accessibilityLabel("Arrange Pages")
                     Button(action: onRename) {
                         Image(systemName: "pencil")
                     }
@@ -282,6 +290,12 @@ struct PDFDetailView: View {
                         Image(systemName: "trash")
                     }
                     .tint(.red)
+                }
+            }
+            .sheet(isPresented: $arranging) {
+                ArrangePagesView(url: file.url) { changed in
+                    arranging = false
+                    if changed { version += 1 }
                 }
             }
             // The question is asked here, on the PDF itself, so the answer always reaches it.
