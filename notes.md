@@ -1,5 +1,4 @@
-- **Add photos to a PDF from your gallery in one go:** on a PDF, tap Add Photos → **Add from Gallery**. The gallery opens right away; pick the photos and they're added to the end of the PDF, with page numbers carrying on. No need to go back to the camera and tap Done.
-- **Take Photos** is still there in the same menu, for shooting new photos to add.
+- **No more page numbers printed on the photos.** PDF apps already show the page number, and photos you add to a PDF later now blend in with the rest. The Page Numbers switch is gone from Settings.
 
 
 
