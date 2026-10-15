@@ -29,6 +29,10 @@ struct CameraScreen: View {
     @State private var blink = false
     @State private var pinchStart: CGFloat?
     @State private var pickerItems: [PhotosPickerItem] = []
+    /// The photo library opened straight from a PDF's "Add Photos → Choose from Library".
+    @State private var showLibraryPicker = false
+    /// After picking from the library for a PDF, add them to it right away (no need to tap Done).
+    @State private var finishAfterImport = false
     @State private var focusPoint: CGPoint?
     @State private var focusHide: DispatchWorkItem?
     @State private var biasStart: Float?
@@ -194,6 +198,8 @@ struct CameraScreen: View {
             guard !items.isEmpty else { return }
             let picked = items
             pickerItems = []
+            let finish = finishAfterImport
+            finishAfterImport = false
             Task {
                 var added = 0
                 for item in picked {
@@ -202,8 +208,27 @@ struct CameraScreen: View {
                         added += 1
                     }
                 }
-                if added > 0 {
+                guard added > 0 else { return }
+                if finish {
+                    // Wait for the photos to be saved, then add them to the PDF.
+                    for _ in 0..<100 where camera.pendingCount > 0 {
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                    createPDF()
+                } else {
                     showToast(added == 1 ? "1 photo added" : "\(added) photos added")
+                }
+            }
+        }
+        .photosPicker(isPresented: $showLibraryPicker, selection: $pickerItems,
+                      maxSelectionCount: 30, matching: .images)
+        .onChange(of: showLibraryPicker) { _, shown in
+            // Closed without picking: forget the PDF, nothing to add.
+            guard !shown else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if finishAfterImport && pickerItems.isEmpty {
+                    finishAfterImport = false
+                    camera.appendTarget = nil
                 }
             }
         }
@@ -213,9 +238,14 @@ struct CameraScreen: View {
                 SettingsView(locationName: location.placeName)
                     .glassSheet()
             case .files:
-                FilesView(onAddPhotos: { url in
+                FilesView(onAddPhotos: { url, source in
                     camera.appendTarget = url
                     sheet = nil
+                    if source == .library {
+                        // Straight to the photo library; the picked photos go into this PDF.
+                        finishAfterImport = camera.visibleShots.isEmpty
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showLibraryPicker = true }
+                    }
                 })
                 .glassSheet()
             case .review:

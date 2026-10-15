@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8
+- **Add photos to a PDF from your library in one go:** on an open PDF, tap Add Photos → **Add from Library**. Your photo library opens right away; pick the photos and they're added to the end of the PDF, with page numbers carrying on. No need to go back to the camera and tap Done.
+- **Take Photos** is still there in the same menu, for shooting new photos to add.
+
 ## 2.7.1
 - **Fix: page numbers when adding photos to an existing PDF.** New pages carry on from the old ones (like 4 / 4 after 3 pages) instead of starting again at 1 / 1. This broke in 2.6.
 

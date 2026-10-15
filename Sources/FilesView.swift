@@ -15,8 +15,8 @@ struct FilesView: View {
     @State private var confirmBulkDelete = false
     @State private var showDeleteAlert = false
     @State private var showMover = false
-    /// Adds new photos to the end of this PDF (back to the camera).
-    var onAddPhotos: (URL) -> Void = { _ in }
+    /// Adds new photos to the end of this PDF: take them with the camera, or pick them from the library.
+    var onAddPhotos: (URL, AddPhotosSource) -> Void = { _, _ in }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -46,8 +46,11 @@ struct FilesView: View {
                         .tint(.orange)
                     }
                     .contextMenu {
-                        Button { onAddPhotos(file.url) } label: {
-                            Label("Add Photos", systemImage: "plus.rectangle.on.rectangle")
+                        Button { onAddPhotos(file.url, .camera) } label: {
+                            Label("Take Photos", systemImage: "camera")
+                        }
+                        Button { onAddPhotos(file.url, .library) } label: {
+                            Label("Add from Library", systemImage: "photo.on.rectangle")
                         }
                         Button { renaming = file } label: {
                             Label("Rename", systemImage: "pencil")
@@ -72,7 +75,7 @@ struct FilesView: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: PDFFile.self) { file in
                 PDFDetailView(file: file,
-                              onAddPhotos: { onAddPhotos(file.url) },
+                              onAddPhotos: { onAddPhotos(file.url, $0) },
                               onRename: { renaming = file },
                               onDelete: { delete(file) })
             }
@@ -174,11 +177,14 @@ struct FilesView: View {
     }
 }
 
+/// Where new photos for an existing PDF come from.
+enum AddPhotosSource { case camera, library }
+
 // MARK: - One PDF
 
 struct PDFDetailView: View {
     let file: PDFFile
-    var onAddPhotos: () -> Void
+    var onAddPhotos: (AddPhotosSource) -> Void
     var onRename: () -> Void
     /// Called after you confirm; deletes the file and goes back to the list.
     var onDelete: () -> Void
@@ -191,7 +197,14 @@ struct PDFDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button(action: onAddPhotos) {
+                    Menu {
+                        Button { onAddPhotos(.library) } label: {
+                            Label("Add from Library", systemImage: "photo.on.rectangle")
+                        }
+                        Button { onAddPhotos(.camera) } label: {
+                            Label("Take Photos", systemImage: "camera")
+                        }
+                    } label: {
                         Image(systemName: "plus.rectangle.on.rectangle")
                     }
                     .accessibilityLabel("Add Photos")
