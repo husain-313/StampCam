@@ -375,7 +375,9 @@ struct CameraScreen: View {
     }
 
     private var selectedPreset: Int {
-        camera.zoomPresets.lastIndex { $0 <= camera.zoom + 0.01 } ?? 0
+        // Use the zoom as shown (one decimal), so 1.96 counts as the 2 button, not "2×" on the 1 button.
+        let shown = (camera.zoom * 10).rounded() / 10
+        return camera.zoomPresets.lastIndex { $0 <= shown + 0.001 } ?? 0
     }
 
     /// Lens buttons; press and hold, then slide, for a smooth zoom dial.
