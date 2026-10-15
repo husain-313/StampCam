@@ -139,7 +139,7 @@ struct SettingsView: View {
                          + "Notes you add to photos are printed under them.\n\n"
                          + (askNameAfterDone
                             ? "After Done you can name the PDF, with smart suggestions from the text in your photos. You can always rename later from the folder button."
-                            : "PDFs are named by date. You can rename them anytime from the folder button."))
+                            : "PDFs are named by the time of the first photo, like 06.52. You can rename them anytime from the folder button."))
                 }
 
                 Section("About") {
