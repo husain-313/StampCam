@@ -180,7 +180,7 @@ enum PDFBuilder {
                       onPage: ((Shot, Data) -> Void)? = nil,
                       progress: @escaping (Int) -> Void) -> URL? {
         guard !pages.isEmpty else { return nil }
-        // Named by when the first photo was taken, like "06.52".
+        // Named by when the first photo was taken, like "5.17 PM".
         let url = FileStore.newFileURL(takenAt: pages[0].shot.date)
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: a4))
         var written = 0
@@ -306,12 +306,12 @@ enum FileStore {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
-    /// A new PDF named by the time of its first photo, 24-hour (like "06.52").
-    /// Another PDF from the same minute becomes "06.52 2".
+    /// A new PDF named by the time of its first photo, 12-hour (like "5.17 PM").
+    /// Another PDF from the same minute becomes "5.17 PM 2".
     static func newFileURL(takenAt date: Date) -> URL {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH.mm"
+        f.dateFormat = "h.mm a"
         let base = f.string(from: date)
         var url = folder.appendingPathComponent("\(base).pdf")
         var n = 2
