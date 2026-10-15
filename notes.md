@@ -1,6 +1,5 @@
-- **About page** (Settings → About StampCam): version, a privacy note, what StampCam is built on, and Developed by Husain Helal.
-- **Check for Updates:** finds the newest version, shows what's new, downloads it and opens Android's install screen. Your photos, PDFs and settings stay. The first time, Android asks you to allow StampCam to install updates.
-- **Copy App Info:** copies the version and your phone model in one tap, for reporting a problem.
+- **Add photos to a PDF from your gallery in one go:** on a PDF, tap Add Photos → **Add from Gallery**. The gallery opens right away; pick the photos and they're added to the end of the PDF, with page numbers carrying on. No need to go back to the camera and tap Done.
+- **Take Photos** is still there in the same menu, for shooting new photos to add.
 
 
 
