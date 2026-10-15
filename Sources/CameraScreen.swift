@@ -909,9 +909,8 @@ struct CameraScreen: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 sheet = .share(url)
             }
-        } else {
-            showToast("PDF Saved ✓")
         }
+        // Otherwise saved quietly: the success tap on the phone is the only sign.
     }
 
     private func showToast(_ text: String) {
