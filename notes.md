@@ -1,4 +1,5 @@
-- **No more page numbers printed on the photos.** PDF apps already show the page number, and photos you add to a PDF later now blend in with the rest. The Page Numbers switch is gone from Settings.
+- **PDFs are named by the time of the first photo**, 24-hour, like **06.52**. Another PDF from the same minute becomes *06.52 2*. Rename anytime from Your PDFs (smart suggestions are still there).
+- **Saved quietly:** with Name and Share after Done turned off, Done just saves the PDF. No "PDF Saved" message, only a short tap on the phone.
 
 
 
