@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.2
+- **Your PDFs is now a grid of covers,** like a photo album: each PDF shows its first photo, with the name and date under it, and the number of pages in the corner. Tap to open; press and hold for Add Photos, Rename, Share and Delete. Select still works for several at once.
+
 ## 3.1
 - **PDF names in 12-hour time,** like **5.17 PM**. Another PDF from the same minute becomes *5.17 PM 2*.
 - **Fix:** the lens buttons no longer show "2" twice when zooming close to 2×.
