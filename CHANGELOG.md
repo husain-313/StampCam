@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.3
+- **Arrange Pages:** open a PDF and tap the ⇅ button to change the order of its photos. Make any photo the first one (the cover in Your PDFs), move pages up or down, or remove a page. Tap Save when done.
+
 ## 3.2
 - **Your PDFs is now a grid of covers,** like a photo album: each PDF shows its first photo, with the name and date under it, and the number of pages in the corner. Tap to open; press and hold for Add Photos, Rename, Share and Delete. Select still works for several at once.
 

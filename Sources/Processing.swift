@@ -356,6 +356,26 @@ enum FileStore {
         }
     }
 
+    /// Saves the PDF with its pages in a new order (page numbers from the old file).
+    /// Pages left out of [order] are removed.
+    static func arrangePages(_ url: URL, order: [Int]) -> Bool {
+        guard !order.isEmpty, let source = PDFDocument(url: url) else { return false }
+        let result = PDFDocument()
+        for index in order {
+            guard let page = source.page(at: index)?.copy() as? PDFPage else { return false }
+            result.insert(page, at: result.pageCount)
+        }
+        let temp = folder.appendingPathComponent(".arrange-\(UUID().uuidString).pdf")
+        guard result.write(to: temp) else { return false }
+        do {
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: temp)
+            return true
+        } catch {
+            try? FileManager.default.removeItem(at: temp)
+            return false
+        }
+    }
+
     static func delete(_ file: PDFFile) {
         try? FileManager.default.removeItem(at: file.url)
     }
