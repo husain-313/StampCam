@@ -644,11 +644,12 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             }
             // Read the text in the full-size photos (first 12) for name suggestions later,
             // so small text is found even when the PDF is made with Small quality.
-            let names = TextScanner.names(fromPhotos: included.prefix(12).compactMap {
+            let text = TextScanner.read(photos: included.prefix(12).compactMap {
                 TextScanner.image(at: SessionStore.imageURL($0.id))
             })
             let url = PDFBuilder.build(pages, style: style, quality: quality, pageSize: pageSize,
-                                       names: names, onPage: saveToPhotos) { _ in }
+                                       names: text.names, allText: text.lines,
+                                       onPage: saveToPhotos) { _ in }
             DispatchQueue.main.async {
                 self.hiddenIDs.subtract(ids)
                 if url != nil {

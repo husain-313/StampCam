@@ -1,5 +1,8 @@
 # Changelog
 
+## 4.0
+- **All Text from Photos:** under Smart Suggestions on the Name PDF screen, open "All Text from Photos" to see every line StampCam read from your photos, top to bottom. Tap any line to use it as the name, even when it isn't one of the top suggestions.
+
 ## 3.9.1
 - **Fix: English text is read properly again.** Reading Arabic and English together made StampCam miss most English text (a page full of English gave only one Arabic word). Now each language is read on its own, so you get suggestions in both.
 

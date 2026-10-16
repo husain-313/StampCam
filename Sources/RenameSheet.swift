@@ -12,6 +12,9 @@ struct RenameSheet: View {
 
     @State private var name: String
     @State private var suggestions: [String] = []
+    /// Every line of text read from the photos, for "All Text from Photos".
+    @State private var allText: [String] = []
+    @State private var showAllText = false
     @State private var scanning = true
     @State private var failed = false
     @FocusState private var fieldFocused: Bool
@@ -86,6 +89,33 @@ struct RenameSheet: View {
                 } footer: {
                     Text("Your note, the place and date, and names read from your photos. Everything stays on your iPhone.")
                 }
+
+                if !allText.isEmpty {
+                    Section {
+                        DisclosureGroup(isExpanded: $showAllText) {
+                            ForEach(allText, id: \.self) { line in
+                                Button {
+                                    pick(line)
+                                } label: {
+                                    HStack {
+                                        Text(line)
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(2)
+                                        Spacer()
+                                        if cleanName == FileStore.sanitize(line) {
+                                            Image(systemName: "checkmark")
+                                                .foregroundStyle(.yellow)
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("All Text from Photos (\(allText.count))", systemImage: "text.alignleft")
+                        }
+                    } footer: {
+                        Text("Everything read from your photos, top to bottom. Tap a line to use it as the name.")
+                    }
+                }
             }
             .navigationTitle("Name PDF")
             .navigationBarTitleDisplayMode(.inline)
@@ -115,9 +145,10 @@ struct RenameSheet: View {
     private func load() async {
         // Quick ones first, so the list is never empty while the photos are read.
         suggestions = merge(read: [])
-        let read = await TextScanner.suggestions(for: url)
+        let reading = await TextScanner.read(url)
         withAnimation(.easeOut(duration: 0.2)) {
-            suggestions = merge(read: read)
+            suggestions = merge(read: reading.names)
+            allText = reading.lines
             scanning = false
         }
     }
