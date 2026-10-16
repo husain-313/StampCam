@@ -25,8 +25,6 @@ struct CameraScreen: View {
     @State private var blink = false
     @State private var pinchStart: CGFloat?
     @State private var pickerItems: [PhotosPickerItem] = []
-    /// The photo library opened straight from a PDF's "Add Photos → Choose from Library".
-    @State private var showLibraryPicker = false
     /// After picking from the library for a PDF, add them to it right away (no need to tap Done).
     @State private var finishAfterImport = false
     @State private var focusPoint: CGPoint?
@@ -205,32 +203,22 @@ struct CameraScreen: View {
                 }
             }
         }
-        .photosPicker(isPresented: $showLibraryPicker, selection: $pickerItems,
-                      maxSelectionCount: 30, matching: .images)
-        .onChange(of: showLibraryPicker) { _, shown in
-            // Closed without picking: forget the PDF, nothing to add.
-            guard !shown else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                if finishAfterImport && pickerItems.isEmpty {
-                    finishAfterImport = false
-                    camera.appendTarget = nil
-                }
-            }
-        }
         .sheet(item: $sheet) { item in
             switch item {
             case .settings:
                 SettingsView(locationName: location.placeName)
                     .glassSheet()
             case .files:
-                FilesView(onAddPhotos: { url, source in
+                FilesView(onAddPhotos: { url, _ in
+                    // Take Photos: back to the camera to add new photos to this PDF.
                     camera.appendTarget = url
                     sheet = nil
-                    if source == .library {
-                        // Straight to the photo library; the picked photos go into this PDF.
-                        finishAfterImport = camera.visibleShots.isEmpty
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showLibraryPicker = true }
-                    }
+                }, onLibraryPicked: { url, items in
+                    // Picked from the library on top of Your PDFs: add them to this PDF right away.
+                    camera.appendTarget = url
+                    finishAfterImport = camera.visibleShots.isEmpty
+                    sheet = nil
+                    pickerItems = items
                 })
                 .glassSheet()
             case .review:

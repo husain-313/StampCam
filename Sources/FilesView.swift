@@ -3,6 +3,7 @@
 
 import SwiftUI
 import PDFKit
+import PhotosUI
 
 struct FilesView: View {
     @Environment(\.dismiss) private var dismiss
@@ -15,8 +16,13 @@ struct FilesView: View {
     @State private var confirmBulkDelete = false
     @State private var showDeleteAlert = false
     @State private var showMover = false
-    /// Adds new photos to the end of this PDF: take them with the camera, or pick them from the library.
+    /// Adds new photos to the end of this PDF by taking them with the camera.
     var onAddPhotos: (URL, AddPhotosSource) -> Void = { _, _ in }
+    /// Photos picked from the library for this PDF (the library opens right here, on top).
+    var onLibraryPicked: (URL, [PhotosPickerItem]) -> Void = { _, _ in }
+    @State private var libraryTarget: URL?
+    @State private var showLibrary = false
+    @State private var libraryItems: [PhotosPickerItem] = []
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -30,7 +36,7 @@ struct FilesView: View {
                             .onTapGesture { tap(file) }
                             .contextMenu {
                                 if !isSelecting {
-                                    Button { onAddPhotos(file.url, .library) } label: {
+                                    Button { addPhotos(file.url, .library) } label: {
                                         Label("Add from Library", systemImage: "photo.on.rectangle")
                                     }
                                     Button { onAddPhotos(file.url, .camera) } label: {
@@ -62,7 +68,7 @@ struct FilesView: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: PDFFile.self) { file in
                 PDFDetailView(file: file,
-                              onAddPhotos: { onAddPhotos(file.url, $0) },
+                              onAddPhotos: { addPhotos(file.url, $0) },
                               onRename: { renaming = file },
                               onDelete: { delete(file) })
             }
@@ -117,6 +123,16 @@ struct FilesView: View {
                 finishSelecting()
             }
             .onAppear(perform: reload)
+            // The library opens right away on top of Your PDFs, so it never has to wait
+            // for this screen to close first.
+            .photosPicker(isPresented: $showLibrary, selection: $libraryItems,
+                          maxSelectionCount: 30, matching: .images)
+            .onChange(of: libraryItems) { _, items in
+                guard !items.isEmpty, let target = libraryTarget else { return }
+                libraryItems = []
+                libraryTarget = nil
+                onLibraryPicked(target, items)
+            }
             .sheet(item: $renaming) { file in
                 RenameSheet(url: file.url) { _ in
                     renaming = nil
@@ -147,6 +163,15 @@ struct FilesView: View {
         selection.removeAll()
         isSelecting = false
         reload()
+    }
+
+    private func addPhotos(_ url: URL, _ source: AddPhotosSource) {
+        if source == .library {
+            libraryTarget = url
+            showLibrary = true
+        } else {
+            onAddPhotos(url, source)
+        }
     }
 
     /// Tap a card: open it, or (while selecting) tick it.
