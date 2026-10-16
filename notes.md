@@ -1,4 +1,7 @@
-- **Photos added from your library get no stamp.** Only photos taken with StampCam show the time and place. Before, library photos were stamped too, and ones without a saved date (like WhatsApp images or screenshots) got the time you added them. This applies to new PDFs and to photos added to an existing PDF.
+- **Done saves quietly, always.** The "Name File After Done" and "Share After Done" switches are gone. Name or share a PDF anytime from Your PDFs.
+- **Pages always fit the photo.** The A4 page size is gone.
+- **Simpler stamp:** GPS coordinates and compass direction are gone. Date, time, area name and your note stay.
+- **No more camera tips card.**
 
 
 
