@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.9.1
+- **Fix: English text is read properly again.** Reading Arabic and English together made StampCam miss most English text (a page full of English gave only one Arabic word). Now each language is read on its own, so you get suggestions in both.
+
 ## 3.9
 - **Better name suggestions.** StampCam now reads small text too, like a laptop screen or a far-away sign, and reads it from the full-size photos while the PDF is made. So suggestions show up even with Small quality.
 - **Flash starts off.** It's off now; if you turn it on, your choice is remembered.
