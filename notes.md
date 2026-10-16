@@ -1,7 +1,2 @@
-- **Flash starts off.** It's off now; if you turn it on, your choice is remembered.
-- **New starting settings** for a fresh install: time only, top left, white, Small quality, Save to Gallery on.
-
-
-
----
-Download **StampCam.apk** below and open it on your Android phone, or use Check for Updates in the app (Settings → About StampCam).
+- **No photo is ever lost.** If a photo can't be added to the PDF, it stays in the camera and you get a message, instead of being deleted.
+- **Area names on weak internet.** If finding the area name fails, the app waits a little before asking again, so names keep showing up.
