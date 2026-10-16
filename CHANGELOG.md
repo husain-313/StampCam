@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.7
+- **Fix: Add from Library opens even when you tap fast.** Tapping + and then Add from Library quickly sometimes didn't open your photos. Now the library waits for the menu to close and always opens on the first tap.
+
 ## 3.6
 - **Fix: Add from Library opens on the first tap.** In Your PDFs, the photo library now opens right away on top, instead of sometimes not opening until you tapped a few times.
 

@@ -19,10 +19,7 @@ struct FilesView: View {
     /// Adds new photos to the end of this PDF by taking them with the camera.
     var onAddPhotos: (URL, AddPhotosSource) -> Void = { _, _ in }
     /// Photos picked from the library for this PDF (the library opens right here, on top).
-    var onLibraryPicked: (URL, [PhotosPickerItem]) -> Void = { _, _ in }
-    @State private var libraryTarget: URL?
-    @State private var showLibrary = false
-    @State private var libraryItems: [PhotosPickerItem] = []
+    var onLibraryPicked: (URL, [Data]) -> Void = { _, _ in }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -123,16 +120,7 @@ struct FilesView: View {
                 finishSelecting()
             }
             .onAppear(perform: reload)
-            // The library opens right away on top of Your PDFs, so it never has to wait
-            // for this screen to close first.
-            .photosPicker(isPresented: $showLibrary, selection: $libraryItems,
-                          maxSelectionCount: 30, matching: .images)
-            .onChange(of: libraryItems) { _, items in
-                guard !items.isEmpty, let target = libraryTarget else { return }
-                libraryItems = []
-                libraryTarget = nil
-                onLibraryPicked(target, items)
-            }
+
             .sheet(item: $renaming) { file in
                 RenameSheet(url: file.url) { _ in
                     renaming = nil
@@ -167,8 +155,8 @@ struct FilesView: View {
 
     private func addPhotos(_ url: URL, _ source: AddPhotosSource) {
         if source == .library {
-            libraryTarget = url
-            showLibrary = true
+            // Opens right away on top of Your PDFs (waiting a moment if a menu is still closing).
+            LibraryPicker.present { photos in onLibraryPicked(url, photos) }
         } else {
             onAddPhotos(url, source)
         }
