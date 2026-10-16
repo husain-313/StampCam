@@ -83,22 +83,30 @@ enum TextScanner {
         return rank(found)
     }
 
+    /// Reads the text twice: once for English and once for Arabic. With Arabic and English
+    /// together in one pass, Vision reads English text badly (a page full of English gave
+    /// only one Arabic word), so each language gets its own pass.
     private static func recognize(_ image: CGImage, page: Int) -> [Found] {
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        let english = read(handler, languages: ["en-US"], page: page)
+        let arabic = read(handler, languages: ["ar-SA", "ars-SA"], page: page)
+            .filter { isArabic($0.text) }          // English is better from the English pass
+        return english + arabic
+    }
+
+    private static func read(_ handler: VNImageRequestHandler, languages wanted: [String], page: Int) -> [Found] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
         // Also read small text (like a screen or a sign far away). Vision skips text
         // smaller than 1/32 of the photo's height unless told otherwise.
         request.minimumTextHeight = 0.008
+        // Only the languages this iPhone supports.
+        let supported = (try? request.supportedRecognitionLanguages()) ?? []
+        let languages = wanted.filter { supported.contains($0) }
+        guard !languages.isEmpty else { return [] }
+        request.recognitionLanguages = languages
 
-        // Arabic first, then English (only the ones this iPhone supports).
-        let wanted = ["ar-SA", "ars-SA", "en-US"]
-        if let supported = try? request.supportedRecognitionLanguages() {
-            let languages = wanted.filter { supported.contains($0) }
-            if !languages.isEmpty { request.recognitionLanguages = languages }
-        }
-
-        let handler = VNImageRequestHandler(cgImage: image, options: [:])
         do {
             try handler.perform([request])
         } catch {
