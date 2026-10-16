@@ -45,7 +45,7 @@ All sources are flat in `Sources/`. `StampCamApp` registers defaults and shows `
 **Saved PDFs.** `FileStore` manages PDFs in the app's Documents folder, which is visible in the Files app. A new PDF is named after the time of its first photo (`h.mm a`, with ` 2`, ` 3`… added if the name is taken). Append and arrange use PDFKit and write to a temp file first, then `replaceItemAt`. `FilesView` shows them as a grid of covers, where page 1 is the cover. "Add from Library" opens the photo library with `LibraryPicker` (a UIKit `PHPickerViewController` presented on the topmost screen). If a menu or screen is still animating it retries every 0.1 s, because SwiftUI's `.photosPicker` silently fails when presented during a transition and then stays stuck. The picked photos (as `Data`) go to `CameraScreen.importPhotos`, which imports them and appends them to that PDF.
 
 **Name suggestions.** `RenameSheet` combines several sources:
-- Text read from the photos by on-device Vision OCR (`TextScanner`, Arabic and English).
+- Text read by on-device Vision OCR (`TextScanner`, Arabic and English, `minimumTextHeight` 0.008 so small text counts). While the PDF is built, `buildPDF` reads the full-size originals (first 12, at most 2400 px) and stores the ranked names in the PDF's keywords; append and arrange keep them. `TextScanner.suggestions(for:)` returns those first, then names from scanning the PDF pages.
 - Area and date names (`CameraModel.areaDateName`).
 - It skips area names that were already stamped (`Keys.stampedPlaces`) and `PDFBuilder.coverMark`.
 
@@ -53,6 +53,6 @@ All sources are flat in `Sources/`. `StampCamApp` registers defaults and shows `
 
 **Version.** `project.yml` maps `CFBundleShortVersionString`/`CFBundleVersion` to `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`; without them XcodeGen writes 1.0 and the updater always offers an update.
 
-**Settings.** `Settings.swift` holds every `UserDefaults` key (`Keys`), the defaults and their migrations (`Defaults.register()`), and the setting enums (`Quality`, `StampPosition`, `StampColor`, `PageSize`). Views read the settings with `@AppStorage(Keys.…)`. A new setting gets a key and a default registered here.
+**Settings.** `Settings.swift` holds every `UserDefaults` key (`Keys`), the defaults and their migrations (`Defaults.register()`), and the setting enums (`Quality`, `StampPosition`, `StampColor`, `PageSize`). Views read the settings with `@AppStorage(Keys.…)`. A new setting gets a key and a default registered here. Fresh-install defaults: time only (no date, no area name), top left, white, 100% size, Small quality, Save to Photos on, flash off (3.9 also switched existing users' flash to off once, `flashOffSince39`).
 
 **Style.** `Style.swift` holds the shared look: `Haptics`, and the glass background and sheet modifiers. Comments and UI text are written in plain, short, user-facing language, and the code uses `// MARK:` sections. Match both.

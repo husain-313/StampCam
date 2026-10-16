@@ -177,12 +177,16 @@ enum PDFBuilder {
                       style: StampStyle,
                       quality: Quality,
                       pageSize: PageSize,
+                      names: [String] = [],
                       onPage: ((Shot, Data) -> Void)? = nil,
                       progress: @escaping (Int) -> Void) -> URL? {
         guard !pages.isEmpty else { return nil }
         // Named by when the first photo was taken, like "5.17 PM".
         let url = FileStore.newFileURL(takenAt: pages[0].shot.date)
-        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: a4))
+        // Name suggestions read from the full-size photos are kept inside the PDF (keywords).
+        let format = UIGraphicsPDFRendererFormat()
+        if !names.isEmpty { format.documentInfo = [kCGPDFContextKeywords as String: names] }
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: a4), format: format)
         var written = 0
 
         do {
@@ -344,6 +348,13 @@ enum FileStore {
             guard let page = extra.page(at: i)?.copy() as? PDFPage else { continue }
             base.insert(page, at: base.pageCount)
         }
+        // Keep the saved name suggestions of both.
+        let names = keywords(base) + keywords(extra).filter { !keywords(base).contains($0) }
+        if !names.isEmpty {
+            var attributes = base.documentAttributes ?? [:]
+            attributes[PDFDocumentAttribute.keywordsAttribute] = Array(names.prefix(12))
+            base.documentAttributes = attributes
+        }
         let temp = folder.appendingPathComponent(".merge-\(UUID().uuidString).pdf")
         guard base.write(to: temp) else { return false }
         do {
@@ -361,6 +372,7 @@ enum FileStore {
     static func arrangePages(_ url: URL, order: [Int]) -> Bool {
         guard !order.isEmpty, let source = PDFDocument(url: url) else { return false }
         let result = PDFDocument()
+        result.documentAttributes = source.documentAttributes     // keeps saved name suggestions
         for index in order {
             guard let page = source.page(at: index)?.copy() as? PDFPage else { return false }
             result.insert(page, at: result.pageCount)
@@ -374,6 +386,13 @@ enum FileStore {
             try? FileManager.default.removeItem(at: temp)
             return false
         }
+    }
+
+    private static func keywords(_ document: PDFDocument) -> [String] {
+        let value = document.documentAttributes?[PDFDocumentAttribute.keywordsAttribute]
+        if let list = value as? [String] { return list }
+        if let text = value as? String, !text.isEmpty { return [text] }
+        return []
     }
 
     static func delete(_ file: PDFFile) {

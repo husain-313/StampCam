@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.9
+- **Better name suggestions.** StampCam now reads small text too, like a laptop screen or a far-away sign, and reads it from the full-size photos while the PDF is made. So suggestions show up even with Small quality.
+- **Flash starts off.** It's off now; if you turn it on, your choice is remembered.
+- **New starting settings** for a fresh install: time only, top left, white, Small quality, Save to Photos on.
+
 ## 3.8
 - **Faster taps in Settings, Your PDFs and Review.** While one of these is open, the camera's level and location stop updating in the background, so buttons and menus react on the first tap again.
 - **Fix: the right version number.** About showed 1.0, so Check for Updates always offered an update. Now it shows the real version and says when you're up to date.
