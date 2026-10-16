@@ -130,9 +130,11 @@ struct CameraScreen: View {
             switch phase {
             case .active:
                 camera.start()
-                orientation.start()
                 location.setHeadingWanted(false)     // the compass direction was removed in 3.5
-                if needsLocation { location.start() }
+                if sheet == nil {                    // paused while a screen is open (see below)
+                    orientation.start()
+                    if needsLocation { location.start() }
+                }
                 UIApplication.shared.isIdleTimerDisabled = true    // keep the screen on while shooting
             case .background:
                 camera.stop()
@@ -144,7 +146,20 @@ struct CameraScreen: View {
             }
         }
         .onChange(of: needsLocation) { _, on in
-            if on { location.start() } else { location.stop() }
+            if on && sheet == nil { location.start() } else { location.stop() }
+        }
+        // While a screen (Settings, Your PDFs, Review…) is open, pause the level and location
+        // updates. They redraw the camera many times a second, and that made taps and menus
+        // on the open screen feel slow or need a second tap.
+        .onChange(of: sheet == nil) { _, cameraShowing in
+            guard scenePhase == .active else { return }
+            if cameraShowing {
+                orientation.start()
+                if needsLocation { location.start() }
+            } else {
+                orientation.stop()
+                location.stop()
+            }
         }
         .onChange(of: orientation.hold, initial: true) { _, _ in
             location.setHeadingOrientation(orientation.headingOrientation)

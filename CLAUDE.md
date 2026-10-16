@@ -49,6 +49,10 @@ All sources are flat in `Sources/`. `StampCamApp` registers defaults and shows `
 - Area and date names (`CameraModel.areaDateName`).
 - It skips area names that were already stamped (`Keys.stampedPlaces`) and `PDFBuilder.coverMark`.
 
+**Keep sheets responsive.** `DeviceOrientation` (level) and `LocationModel` publish many times a second and redraw `CameraScreen`; while any sheet is open (`sheet != nil`) `CameraScreen` stops both, and starts them again when the sheet closes. Otherwise menus and pickers in the open sheet close or need a second tap.
+
+**Version.** `project.yml` maps `CFBundleShortVersionString`/`CFBundleVersion` to `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`; without them XcodeGen writes 1.0 and the updater always offers an update.
+
 **Settings.** `Settings.swift` holds every `UserDefaults` key (`Keys`), the defaults and their migrations (`Defaults.register()`), and the setting enums (`Quality`, `StampPosition`, `StampColor`, `PageSize`). Views read the settings with `@AppStorage(Keys.…)`. A new setting gets a key and a default registered here.
 
 **Style.** `Style.swift` holds the shared look: `Haptics`, and the glass background and sheet modifiers. Comments and UI text are written in plain, short, user-facing language, and the code uses `// MARK:` sections. Match both.
