@@ -178,6 +178,7 @@ enum PDFBuilder {
                       quality: Quality,
                       pageSize: PageSize,
                       names: [String] = [],
+                      allText: [String] = [],
                       onPage: ((Shot, Data) -> Void)? = nil,
                       progress: @escaping (Int) -> Void) -> URL? {
         guard !pages.isEmpty else { return nil }
@@ -185,7 +186,11 @@ enum PDFBuilder {
         let url = FileStore.newFileURL(takenAt: pages[0].shot.date)
         // Name suggestions read from the full-size photos are kept inside the PDF (keywords).
         let format = UIGraphicsPDFRendererFormat()
-        if !names.isEmpty { format.documentInfo = [kCGPDFContextKeywords as String: names] }
+        // …and every line of text read, for "All Text from Photos" (subject).
+        var info: [String: Any] = [:]
+        if !names.isEmpty { info[kCGPDFContextKeywords as String] = names }
+        if !allText.isEmpty { info[kCGPDFContextSubject as String] = allText.joined(separator: "\n") }
+        format.documentInfo = info
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: a4), format: format)
         var written = 0
 
@@ -350,11 +355,13 @@ enum FileStore {
         }
         // Keep the saved name suggestions of both.
         let names = keywords(base) + keywords(extra).filter { !keywords(base).contains($0) }
-        if !names.isEmpty {
-            var attributes = base.documentAttributes ?? [:]
-            attributes[PDFDocumentAttribute.keywordsAttribute] = Array(names.prefix(12))
-            base.documentAttributes = attributes
-        }
+        var attributes = base.documentAttributes ?? [:]
+        if !names.isEmpty { attributes[PDFDocumentAttribute.keywordsAttribute] = Array(names.prefix(12)) }
+        let lines = [base, extra]
+            .compactMap { $0.documentAttributes?[PDFDocumentAttribute.subjectAttribute] as? String }
+            .filter { !$0.isEmpty }
+        if !lines.isEmpty { attributes[PDFDocumentAttribute.subjectAttribute] = lines.joined(separator: "\n") }
+        base.documentAttributes = attributes
         let temp = folder.appendingPathComponent(".merge-\(UUID().uuidString).pdf")
         guard base.write(to: temp) else { return false }
         do {

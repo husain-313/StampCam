@@ -18,28 +18,56 @@ enum TextScanner {
         var merged = false
     }
 
-    /// The best file names from the text in the PDF's photos (most likely first, at most 8).
-    /// Names read from the full-size photos when the PDF was made come first; the PDF's
-    /// pages are read too (they may be smaller, so small text can be missed there).
-    static func suggestions(for url: URL, maxPages: Int = 30) async -> [String] {
+    /// What was read from a PDF's photos: the best names (at most 8), and every line of text.
+    struct Reading {
+        var names: [String] = []
+        var lines: [String] = []
+    }
+
+    /// The best file names from the text in the PDF's photos (most likely first, at most 8),
+    /// and all the text, line by line. What was read from the full-size photos when the PDF
+    /// was made comes first; the PDF's pages are read too (small text can be missed there).
+    static func read(_ url: URL, maxPages: Int = 30) async -> Reading {
         await Task.detached(priority: .userInitiated) {
-            var names = TextScanner.savedNames(in: url)
-            var seen = Set(names.map(normalize))
-            for name in TextScanner.scan(url, maxPages: maxPages) where seen.insert(normalize(name)).inserted {
-                names.append(name)
-            }
-            return Array(names.prefix(8))
+            let saved = TextScanner.saved(in: url)
+            let found = TextScanner.scan(url, maxPages: maxPages)
+            return Reading(names: Array(merge(saved.names, rank(found)).prefix(8)),
+                           lines: Array(merge(saved.lines, allLines(found)).prefix(300)))
         }.value
     }
 
-    /// Reads the full-size photos while the PDF is made; the names are saved inside the PDF.
+    /// Reads the full-size photos while the PDF is made; the result is saved inside the PDF.
     /// Call off the main thread.
-    static func names(fromPhotos images: [CGImage]) -> [String] {
+    static func read(photos images: [CGImage]) -> Reading {
         var found: [Found] = []
         for (index, image) in images.enumerated() {
             found += recognize(image, page: index)
         }
-        return rank(found)
+        return Reading(names: rank(found), lines: Array(allLines(found).prefix(300)))
+    }
+
+    /// Every line read, photo by photo, top to bottom, without repeats (only junk removed).
+    private static func allLines(_ found: [Found]) -> [String] {
+        let sorted = found.sorted {
+            if $0.page != $1.page { return $0.page < $1.page }
+            if abs($0.box.midY - $1.box.midY) > 0.01 { return $0.box.midY > $1.box.midY }
+            return $0.box.minX < $1.box.minX
+        }
+        var seen = Set<String>()
+        return sorted.compactMap { item -> String? in
+            let text = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.count >= 2, item.confidence >= 0.3,
+                  text.contains(where: { $0.isLetter }) else { return nil }
+            let key = normalize(text)
+            guard !key.isEmpty, seen.insert(key).inserted else { return nil }
+            return String(text.prefix(80))
+        }
+    }
+
+    /// Both lists in order, without repeats.
+    private static func merge(_ first: [String], _ second: [String]) -> [String] {
+        var seen = Set<String>()
+        return (first + second).filter { !$0.isEmpty && seen.insert(normalize($0)).inserted }
     }
 
     /// A photo file, upright and at most 2400 pixels on the long side, for reading its text.
@@ -53,18 +81,22 @@ enum TextScanner {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
-    /// Names saved in the PDF when it was made (PDF keywords).
-    private static func savedNames(in url: URL) -> [String] {
-        guard let attributes = PDFDocument(url: url)?.documentAttributes else { return [] }
+    /// What was saved in the PDF when it was made: names in the keywords, all text in the subject.
+    private static func saved(in url: URL) -> Reading {
+        guard let attributes = PDFDocument(url: url)?.documentAttributes else { return Reading() }
+        var reading = Reading()
         let value = attributes[PDFDocumentAttribute.keywordsAttribute]
-        if let list = value as? [String] { return list.filter { !$0.isEmpty } }
-        if let text = value as? String, !text.isEmpty { return [text] }
-        return []
+        if let list = value as? [String] { reading.names = list.filter { !$0.isEmpty } }
+        else if let text = value as? String, !text.isEmpty { reading.names = [text] }
+        if let subject = attributes[PDFDocumentAttribute.subjectAttribute] as? String {
+            reading.lines = subject.components(separatedBy: "\n").filter { !$0.isEmpty }
+        }
+        return reading
     }
 
     // MARK: Reading
 
-    private static func scan(_ url: URL, maxPages: Int) -> [String] {
+    private static func scan(_ url: URL, maxPages: Int) -> [Found] {
         guard let document = PDFDocument(url: url) else { return [] }
         var found: [Found] = []
         var scanned = 0
@@ -80,7 +112,7 @@ enum TextScanner {
             guard let image = page.thumbnail(of: size, for: .mediaBox).cgImage else { continue }
             found += recognize(image, page: index)
         }
-        return rank(found)
+        return found
     }
 
     /// Reads the text twice: once for English and once for Arabic. With Arabic and English
