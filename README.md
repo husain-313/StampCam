@@ -10,7 +10,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 
 1. **Shoot** — take photos, or add some from your library.
 2. **Tap Done** — the camera is ready again at once while the photos become one PDF quietly in the background.
-3. **Name & share** — pick a name (StampCam suggests one from the text in your photos) and send it anywhere.
+3. **Name & share later** — from Your PDFs, rename (StampCam suggests names from the text in your photos) and send it anywhere.
 
 ---
 
@@ -20,7 +20,6 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 - Flash: Off, Auto or On
 - Zoom with two fingers or tap the lens buttons (.5×, 1×, 2×, 5×)
 - Take photos with the volume buttons or the Camera Control button — and slide on Camera Control for zoom or brightness
-- Short camera tips the first time you open the app
 - Front and back cameras — or double-tap the picture to switch
 - Swipe left or right on the picture to change lens; press and hold the lens buttons for a smooth zoom dial
 - Glass controls and haptic feedback, like a pro camera app
@@ -32,7 +31,6 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 - Date and time — together, or just one of them — in 12-hour (AM/PM) or 24-hour format
 - Area name (for example: *Riffa, Bahrain*)
 - **Note line** — like a project or client name — on every photo
-- **GPS coordinates** and **compass direction** (which way the camera faced)
 - Clean bold text — no box, with a soft shadow so it's easy to read on any photo
 - See the stamp live on the camera while you shoot
 - Turn each one on or off, and choose the corner, text size and color
@@ -65,8 +63,8 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 
 ### ⚙️ Settings
 - Photo quality: High, Medium or Small (smaller = smaller PDF)
-- PDF page size: fit to the photo, or A4 with margins for printing
-- Ask for a name after Done, and open the share sheet automatically
+- Each PDF page has the photo's shape, no margins
+- Done saves the PDF quietly, named by the time of the first photo
 
 ---
 

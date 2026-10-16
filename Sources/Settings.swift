@@ -42,6 +42,12 @@ enum Defaults {
         if d.object(forKey: Keys.showDate) == nil, d.object(forKey: Keys.showTime) != nil {
             d.set(d.bool(forKey: Keys.showTime), forKey: Keys.showDate)
         }
+        // 3.5 removed these options: Done always saves quietly, pages fit the photo,
+        // and the stamp has no GPS coordinates or compass direction.
+        for key in [Keys.askNameAfterDone, Keys.shareAfterDone, Keys.showCoordinates, Keys.showHeading] {
+            d.set(false, forKey: key)
+        }
+        d.set(PageSize.photo.rawValue, forKey: Keys.pageSize)
         d.register(defaults: [
             Keys.showDate: true,
             Keys.showTime: true,
