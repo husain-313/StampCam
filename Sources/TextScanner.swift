@@ -7,6 +7,7 @@
 import UIKit
 import Vision
 import PDFKit
+import ImageIO
 
 enum TextScanner {
     struct Found {
@@ -18,10 +19,47 @@ enum TextScanner {
     }
 
     /// The best file names from the text in the PDF's photos (most likely first, at most 8).
+    /// Names read from the full-size photos when the PDF was made come first; the PDF's
+    /// pages are read too (they may be smaller, so small text can be missed there).
     static func suggestions(for url: URL, maxPages: Int = 30) async -> [String] {
         await Task.detached(priority: .userInitiated) {
-            TextScanner.scan(url, maxPages: maxPages)
+            var names = TextScanner.savedNames(in: url)
+            var seen = Set(names.map(normalize))
+            for name in TextScanner.scan(url, maxPages: maxPages) where seen.insert(normalize(name)).inserted {
+                names.append(name)
+            }
+            return Array(names.prefix(8))
         }.value
+    }
+
+    /// Reads the full-size photos while the PDF is made; the names are saved inside the PDF.
+    /// Call off the main thread.
+    static func names(fromPhotos images: [CGImage]) -> [String] {
+        var found: [Found] = []
+        for (index, image) in images.enumerated() {
+            found += recognize(image, page: index)
+        }
+        return rank(found)
+    }
+
+    /// A photo file, upright and at most 2400 pixels on the long side, for reading its text.
+    static func image(at url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 2400,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    /// Names saved in the PDF when it was made (PDF keywords).
+    private static func savedNames(in url: URL) -> [String] {
+        guard let attributes = PDFDocument(url: url)?.documentAttributes else { return [] }
+        let value = attributes[PDFDocumentAttribute.keywordsAttribute]
+        if let list = value as? [String] { return list.filter { !$0.isEmpty } }
+        if let text = value as? String, !text.isEmpty { return [text] }
+        return []
     }
 
     // MARK: Reading
@@ -49,6 +87,9 @@ enum TextScanner {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
+        // Also read small text (like a screen or a sign far away). Vision skips text
+        // smaller than 1/32 of the photo's height unless told otherwise.
+        request.minimumTextHeight = 0.008
 
         // Arabic first, then English (only the ones this iPhone supports).
         let wanted = ["ar-SA", "ars-SA", "en-US"]

@@ -48,17 +48,23 @@ enum Defaults {
             d.set(false, forKey: key)
         }
         d.set(PageSize.photo.rawValue, forKey: Keys.pageSize)
+        // 3.9: flash starts off (once); after that your choice is remembered.
+        if !d.bool(forKey: "flashOffSince39") {
+            d.set(FlashMode.off.rawValue, forKey: Keys.flashMode)
+            d.set(true, forKey: "flashOffSince39")
+        }
+        // Defaults for a fresh install: time only, top left, white, small files, flash off.
         d.register(defaults: [
-            Keys.showDate: true,
+            Keys.showDate: false,
             Keys.showTime: true,
-            Keys.showLocation: true,
-            Keys.stampPosition: StampPosition.bottomRight.rawValue,
+            Keys.showLocation: false,
+            Keys.stampPosition: StampPosition.topLeft.rawValue,
             Keys.stampSize: stampSize,
             Keys.stampColor: StampColor.white.rawValue,
-            Keys.quality: Quality.medium.rawValue,
+            Keys.quality: Quality.small.rawValue,
             Keys.pageSize: PageSize.photo.rawValue,
             Keys.shareAfterDone: true,
-            Keys.flashMode: FlashMode.auto.rawValue,
+            Keys.flashMode: FlashMode.off.rawValue,
             Keys.askNameAfterDone: true,
             Keys.use24Hour: false,
             Keys.saveToPhotos: true,
