@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.8
+- **Faster taps in Settings, Your PDFs and Review.** While one of these is open, the camera's level and location stop updating in the background, so buttons and menus react on the first tap again.
+- **Fix: the right version number.** About showed 1.0, so Check for Updates always offered an update. Now it shows the real version and says when you're up to date.
+
 ## 3.7
 - **Fix: Add from Library opens even when you tap fast.** Tapping + and then Add from Library quickly sometimes didn't open your photos. Now the library waits for the menu to close and always opens on the first tap.
 
