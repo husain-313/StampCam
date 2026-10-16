@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Rule: keep this file up to date.** After every change to the app, small or large, review this CLAUDE.md and update anything that no longer matches the app. Do this automatically, without being asked, as part of the same change.
+
 ## What this is
 
 StampCam is a SwiftUI iPhone app (iOS 17+, iPhone only, portrait UI, always dark mode). You take photos, tap Done, and get one PDF with the date, time and location stamped on each photo. There are no third-party dependencies, only Apple frameworks: AVFoundation, CoreLocation, Vision, PDFKit, Photos and ImageIO.
