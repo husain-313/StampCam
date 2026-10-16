@@ -1,7 +1,5 @@
-- **Done saves quietly, always.** The "Name File After Done" and "Share After Done" switches are gone. Name or share a PDF anytime from Your PDFs.
-- **Pages always fit the photo.** The A4 page size is gone.
-- **Simpler stamp:** GPS coordinates and compass direction are gone. Date, time, area name and your note stay.
-- **No more camera tips card.**
+- **Flash starts off.** It's off now; if you turn it on, your choice is remembered.
+- **New starting settings** for a fresh install: time only, top left, white, Small quality, Save to Gallery on.
 
 
 
