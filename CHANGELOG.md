@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.4
+- **Photos added from your library get no stamp.** Only photos taken with StampCam show the time and place. Before, library photos were stamped too, and ones without a saved date (like WhatsApp images or screenshots) got the time you added them. This applies to new PDFs and to photos added to an existing PDF.
+
 ## 3.3
 - **Arrange Pages:** open a PDF and tap the ⇅ button to change the order of its photos. Make any photo the first one (the cover in Your PDFs), move pages up or down, or remove a page. Tap Save when done.
 
