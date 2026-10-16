@@ -855,9 +855,11 @@ struct CameraScreen: View {
                 return
             }
             if outcome.leftOut > 0 {
-                showToast(outcome.leftOut == 1
-                          ? "1 photo couldn't be added and is still in the camera"
-                          : "\(outcome.leftOut) photos couldn't be added and are still in the camera")
+                var message = outcome.leftOut == 1
+                    ? "1 photo couldn't be added and is still in the camera"
+                    : "\(outcome.leftOut) photos couldn't be added and are still in the camera"
+                if outcome.appendFailed { message += ". The rest were saved as a new PDF" }
+                showToast(message)
             } else if outcome.appendFailed {
                 showToast("Couldn't add to the PDF; saved as a new one")
             }

@@ -346,8 +346,9 @@ enum FileStore {
     }
 
     /// Adds the pages of `newPDF` to the end of `target`, then removes `newPDF`.
-    static func append(_ newPDF: URL, to target: URL) -> Bool {
-        guard let base = PDFDocument(url: target), let extra = PDFDocument(url: newPDF) else { return false }
+    /// Returns how many pages the PDF had before (nil if it couldn't be added).
+    static func append(_ newPDF: URL, to target: URL) -> Int? {
+        guard let base = PDFDocument(url: target), let extra = PDFDocument(url: newPDF) else { return nil }
         let basePages = base.pageCount
         for i in 0..<extra.pageCount {
             guard let page = extra.page(at: i)?.copy() as? PDFPage else { continue }
@@ -355,15 +356,15 @@ enum FileStore {
         }
         stripReadText(base)
         let temp = folder.appendingPathComponent(".merge-\(UUID().uuidString).pdf")
-        guard base.write(to: temp) else { return false }
+        guard base.write(to: temp) else { return nil }
         do {
             _ = try FileManager.default.replaceItemAt(target, withItemAt: temp)
             try? FileManager.default.removeItem(at: newPDF)
-            PDFText.append(newPDF, to: target, basePages: basePages)
-            return true
+            PDFText.append(newPDF, to: target, basePages: basePages, addedPages: extra.pageCount)
+            return basePages
         } catch {
             try? FileManager.default.removeItem(at: temp)
-            return false
+            return nil
         }
     }
 
@@ -398,7 +399,10 @@ enum FileStore {
     }
 
     /// Once: removes the hidden text from PDFs made with 3.9–4.0. Keeps each file's date.
-    static func removeHiddenTextFromOldPDFs() {
+    /// Returns true when every PDF is clean.
+    @discardableResult
+    static func removeHiddenTextFromOldPDFs() -> Bool {
+        var allClean = true
         for file in list() {
             guard let document = PDFDocument(url: file.url),
                   let attributes = document.documentAttributes,
@@ -406,13 +410,15 @@ enum FileStore {
                     || attributes[PDFDocumentAttribute.subjectAttribute] != nil else { continue }
             stripReadText(document)
             let temp = folder.appendingPathComponent(".clean-\(UUID().uuidString).pdf")
-            guard document.write(to: temp) else { continue }
+            guard document.write(to: temp) else { allClean = false; continue }
             if (try? FileManager.default.replaceItemAt(file.url, withItemAt: temp)) != nil {
                 try? FileManager.default.setAttributes([.modificationDate: file.date], ofItemAtPath: file.url.path)
             } else {
                 try? FileManager.default.removeItem(at: temp)
+                allClean = false
             }
         }
+        return allClean
     }
 
     static func delete(_ file: PDFFile) {

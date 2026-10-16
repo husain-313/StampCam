@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.2
+- **All the text, from every photo.** "All Text from Photos" and Smart Suggestions read every page again, not just the first 6. Pages not read yet are read the first time you open Name PDF, and remembered after that. This also fixes PDFs made with 4.1, and older PDFs you added photos to.
+- **Done is quicker.** The PDF is saved first; the text in your photos is read afterwards, in the background.
+- **Each photo keeps its own time and place**, even when you shoot fast and a photo fails.
+- **Clearer messages.** If a photo is left out and adding to a PDF also fails, you're told both.
+- **Cleanup finishes for sure.** If the app closed while cleaning hidden text from old PDFs, it finishes next time. Text kept for PDFs you delete or rename in the Files app is removed too.
+
 ## 4.1 — Safer
 - **No photo is ever lost.** If a photo can't be added to the PDF, it now stays in the camera and you get a message, instead of being deleted.
 - **Private PDFs.** The text StampCam reads from your photos (for name suggestions) is kept only on your iPhone, never inside the PDF, so people you send a PDF to can't see it. Pages you remove take their text with them. PDFs made with 3.9 and 4.0 are cleaned up automatically.

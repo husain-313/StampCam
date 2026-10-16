@@ -104,7 +104,9 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         let placeName: String?
         let heading: Double?
     }
-    private var pendingSlots: [Slot] = []   // main thread only
+    /// Photos being taken, by their capture id, so each photo gets its own date and place
+    /// even when one fails or they finish out of order. Main thread only.
+    private var pendingSlots: [Int64: Slot] = [:]
 
     override init() {
         let saved = FlashMode(rawValue: UserDefaults.standard.string(forKey: Keys.flashMode) ?? "") ?? .off
@@ -371,20 +373,21 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                         heading: location?.heading)
         if let target = replaceTarget { replacingIDs.insert(target) }
         replaceTarget = nil
-        pendingSlots.append(slot)
+        let settings = AVCapturePhotoSettings()
+        let captureID = settings.uniqueID
+        pendingSlots[captureID] = slot
         pendingCount += 1
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
         let flashMode = flash.avMode
         sessionQueue.async {
             guard let connection = self.output.connection(with: .video), connection.isEnabled else {
-                DispatchQueue.main.async { self.dropOldestSlot() }
+                DispatchQueue.main.async { self.dropSlot(captureID) }
                 return
             }
             if connection.isVideoRotationAngleSupported(rotationAngle) {
                 connection.videoRotationAngle = rotationAngle   // upright in any orientation
             }
-            let settings = AVCapturePhotoSettings()
             if self.output.supportedFlashModes.contains(flashMode) {
                 settings.flashMode = flashMode
             }
@@ -396,9 +399,9 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                      didFinishProcessingPhoto photo: AVCapturePhoto,
                      error: Error?) {
         let data = photo.fileDataRepresentation()
+        let captureID = photo.resolvedSettings.uniqueID
         DispatchQueue.main.async {
-            guard !self.pendingSlots.isEmpty else { return }
-            let slot = self.pendingSlots.removeFirst()
+            guard let slot = self.pendingSlots.removeValue(forKey: captureID) else { return }
             guard let data else {
                 self.complete(slot, saved: false, thumbnail: nil)
                 return
@@ -465,9 +468,9 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         }
     }
 
-    private func dropOldestSlot() {
-        guard !pendingSlots.isEmpty else { return }
-        complete(pendingSlots.removeFirst(), saved: false, thumbnail: nil)
+    private func dropSlot(_ captureID: Int64) {
+        guard let slot = pendingSlots.removeValue(forKey: captureID) else { return }
+        complete(slot, saved: false, thumbnail: nil)
     }
 
     private func complete(_ slot: Slot, saved: Bool, thumbnail: UIImage?) {
@@ -649,42 +652,31 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                     }
                 }
             }
-            // Read the text in the full-size photos (first 6) for name suggestions later,
-            // so small text is found even when the PDF is made with Small quality.
-            var readIDs: [UUID] = []
-            var images: [CGImage] = []
-            for shot in included.prefix(6) {
-                if let image = TextScanner.image(at: SessionStore.imageURL(shot.id), maxPixel: 2000) {
-                    readIDs.append(shot.id)
-                    images.append(image)
-                }
-            }
-            let reading = TextScanner.read(photos: images)
-            var linesByID: [UUID: [String]] = [:]
-            for (id, lines) in zip(readIDs, reading.pages) { linesByID[id] = lines }
-
             let built = PDFBuilder.build(pages, style: style, quality: quality, pageSize: pageSize,
                                          onPage: saveToPhotos) { _ in }
             var outcome = PDFOutcome()
+            var firstNewPage = 0
             if let built {
-                // The text stays in the app, page by page (never inside the PDF).
-                let pageText = built.written.map { linesByID[$0] ?? [] }
-                PDFText.save(PDFText.Stored(names: PDFText.keepNames(reading.names, foundIn: pageText),
-                                            pages: pageText), for: built.url)
                 outcome.url = built.url
                 // Adding to an existing PDF: merge here, in the background, so the screen never freezes.
                 if let target = appendingTo {
-                    if FileStore.append(built.url, to: target) { outcome.url = target } else { outcome.appendFailed = true }
+                    if let basePages = FileStore.append(built.url, to: target) {
+                        outcome.url = target
+                        firstNewPage = basePages
+                    } else {
+                        outcome.appendFailed = true
+                    }
                 }
             }
+            let finalURL = outcome.url
             DispatchQueue.main.async {
                 self.hiddenIDs.subtract(ids)
                 if let built {
-                    // Only the photos that made it into the saved PDF are cleared from the iPhone.
+                    // Only the photos that made it into the saved PDF leave the set.
                     // A photo that couldn't be read stays in the camera.
                     let saved = Set(built.written)
                     self.shots.removeAll { saved.contains($0.id) }
-                    saved.forEach { self.removeFiles(for: $0) }
+                    saved.forEach { self.thumbnails[$0] = nil }
                     self.persist()
                     outcome.leftOut = ids.count - saved.count
                     UINotificationFeedbackGenerator().notificationOccurred(outcome.leftOut == 0 ? .success : .warning)
@@ -694,6 +686,22 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                 }
                 completion(outcome)
             }
+
+            // The PDF is already saved. Now read the text in the full-size photos (first 6)
+            // for name suggestions, so small text is found even with Small quality. The rest
+            // are read when the Rename screen opens. The text stays in the app (PDFText).
+            guard let built, let url = finalURL else { return }
+            let toRead = Array(built.written.prefix(6))
+            let images = toRead.compactMap { TextScanner.image(at: SessionStore.imageURL($0), maxPixel: 2000) }
+            if images.count == toRead.count {
+                let reading = TextScanner.read(photos: images)
+                PDFText.fill(url, pageCount: firstNewPage + built.written.count,
+                             from: firstNewPage, lines: reading.pages,
+                             names: PDFText.keepNames(reading.names, foundIn: reading.pages))
+            }
+            // Done with the originals. If the app closes before this, they're cleaned up at
+            // the next launch (they're no longer in the saved set).
+            built.written.forEach(SessionStore.deleteImage)
           }
         }
 
