@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.6
+- **Fix: Add from Library opens on the first tap.** In Your PDFs, the photo library now opens right away on top, instead of sometimes not opening until you tapped a few times.
+
 ## 3.5 — Simpler
 - **Done saves quietly, always.** The "Name File After Done" and "Share After Done" switches are gone. Name or share a PDF anytime from Your PDFs.
 - **Pages always fit the photo.** The A4 page size is gone.
