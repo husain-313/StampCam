@@ -21,6 +21,8 @@ final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate
 
     private var cache: [(location: CLLocation, name: String)] = []
     private var waiting: [String: [(String?) -> Void]] = [:]
+    /// When a lookup for a spot last failed.
+    private var failedAt: [String: Date] = [:]
     private var lastLookup = Date.distantPast
 
     var isDenied: Bool { authorization == .denied || authorization == .restricted }
@@ -89,6 +91,12 @@ final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate
             return
         }
         let key = String(format: "%.3f,%.3f", location.coordinate.latitude, location.coordinate.longitude)
+        // A lookup for this spot failed a moment ago (e.g. weak internet): wait 30 s before
+        // asking again, so Apple doesn't limit the lookups.
+        if let failed = failedAt[key], Date().timeIntervalSince(failed) < 30 {
+            completion(nil)
+            return
+        }
         if waiting[key] != nil {
             waiting[key]?.append(completion)
             return
@@ -99,7 +107,12 @@ final class LocationModel: NSObject, ObservableObject, CLLocationManagerDelegate
         Task {
             let name = await PlaceNamer.name(for: location)
             await MainActor.run {
-                if let name { self.cache.append((location, name)) }
+                if let name {
+                    self.cache.append((location, name))
+                    self.failedAt[key] = nil
+                } else {
+                    self.failedAt[key] = Date()
+                }
                 let callbacks = self.waiting.removeValue(forKey: key) ?? []
                 callbacks.forEach { $0(name) }
                 self.updateCount += 1

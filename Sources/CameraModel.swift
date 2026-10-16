@@ -561,13 +561,22 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
 
     // MARK: PDF
 
+    /// What happened after Done.
+    struct PDFOutcome {
+        /// The saved PDF (the existing one when adding to it), or nil if it failed.
+        var url: URL?
+        /// Photos that couldn't be read and stay in the camera.
+        var leftOut = 0
+        /// Adding to the existing PDF failed; the photos were saved as a new PDF instead.
+        var appendFailed = false
+    }
+
     /// Makes the PDF quietly in the background. The photos leave the camera at once;
-    /// they are only deleted after the PDF is saved, and come back if it fails.
-    /// The completion gets the PDF and a suggested name like "Jidhafs – 14 Oct".
+    /// only the ones that made it into the saved PDF are deleted. The rest come back.
     /// [appendingTo]: the existing PDF these photos will be added to.
-    func makePDF(appendingTo: URL?, completion: @escaping (URL?, String?) -> Void) {
+    func makePDF(appendingTo: URL?, completion: @escaping (PDFOutcome) -> Void) {
         let included = visibleShots
-        guard !included.isEmpty else { completion(nil, nil); return }
+        guard !included.isEmpty else { completion(PDFOutcome()); return }
         let ids = Set(included.map(\.id))
         hiddenIDs.formUnion(ids)
         if let target = replaceTarget, ids.contains(target) { replaceTarget = nil }
@@ -577,9 +586,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         resolvePlaces()
         let finish = {
             let current = self.shots.filter { ids.contains($0.id) }
-            self.buildPDF(current, appendingTo: appendingTo) { url in
-                completion(url, url == nil ? nil : Self.areaDateName(current))
-            }
+            self.buildPDF(current, appendingTo: appendingTo, completion: completion)
         }
         if wantsLocation && locationUsable && included.contains(where: needsPlace) {
             // Give the area names a few seconds to arrive (nothing shown on screen).
@@ -622,7 +629,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         }
     }
 
-    private func buildPDF(_ included: [Shot], appendingTo: URL?, completion: @escaping (URL?) -> Void) {
+    private func buildPDF(_ included: [Shot], appendingTo: URL?, completion: @escaping (PDFOutcome) -> Void) {
         let ids = Set(included.map(\.id))
         let pages = included.map { PDFPageSource(shot: $0, lines: stampLines(for: $0)) }
         rememberStampedPlaces(included)
@@ -642,27 +649,50 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                     }
                 }
             }
-            // Read the text in the full-size photos (first 12) for name suggestions later,
+            // Read the text in the full-size photos (first 6) for name suggestions later,
             // so small text is found even when the PDF is made with Small quality.
-            let text = TextScanner.read(photos: included.prefix(12).compactMap {
-                TextScanner.image(at: SessionStore.imageURL($0.id))
-            })
-            let url = PDFBuilder.build(pages, style: style, quality: quality, pageSize: pageSize,
-                                       names: text.names, allText: text.lines,
-                                       onPage: saveToPhotos) { _ in }
+            var readIDs: [UUID] = []
+            var images: [CGImage] = []
+            for shot in included.prefix(6) {
+                if let image = TextScanner.image(at: SessionStore.imageURL(shot.id), maxPixel: 2000) {
+                    readIDs.append(shot.id)
+                    images.append(image)
+                }
+            }
+            let reading = TextScanner.read(photos: images)
+            var linesByID: [UUID: [String]] = [:]
+            for (id, lines) in zip(readIDs, reading.pages) { linesByID[id] = lines }
+
+            let built = PDFBuilder.build(pages, style: style, quality: quality, pageSize: pageSize,
+                                         onPage: saveToPhotos) { _ in }
+            var outcome = PDFOutcome()
+            if let built {
+                // The text stays in the app, page by page (never inside the PDF).
+                let pageText = built.written.map { linesByID[$0] ?? [] }
+                PDFText.save(PDFText.Stored(names: PDFText.keepNames(reading.names, foundIn: pageText),
+                                            pages: pageText), for: built.url)
+                outcome.url = built.url
+                // Adding to an existing PDF: merge here, in the background, so the screen never freezes.
+                if let target = appendingTo {
+                    if FileStore.append(built.url, to: target) { outcome.url = target } else { outcome.appendFailed = true }
+                }
+            }
             DispatchQueue.main.async {
                 self.hiddenIDs.subtract(ids)
-                if url != nil {
-                    // The PDF is safe; clear these photos from the iPhone.
-                    self.shots.removeAll { ids.contains($0.id) }
-                    ids.forEach { self.removeFiles(for: $0) }
+                if let built {
+                    // Only the photos that made it into the saved PDF are cleared from the iPhone.
+                    // A photo that couldn't be read stays in the camera.
+                    let saved = Set(built.written)
+                    self.shots.removeAll { saved.contains($0.id) }
+                    saved.forEach { self.removeFiles(for: $0) }
                     self.persist()
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    outcome.leftOut = ids.count - saved.count
+                    UINotificationFeedbackGenerator().notificationOccurred(outcome.leftOut == 0 ? .success : .warning)
                 } else {
                     // Something went wrong: the photos are back in the camera.
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
                 }
-                completion(url)
+                completion(outcome)
             }
           }
         }

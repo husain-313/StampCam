@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.1 — Safer
+- **No photo is ever lost.** If a photo can't be added to the PDF, it now stays in the camera and you get a message, instead of being deleted.
+- **Private PDFs.** The text StampCam reads from your photos (for name suggestions) is kept only on your iPhone, never inside the PDF, so people you send a PDF to can't see it. Pages you remove take their text with them. PDFs made with 3.9 and 4.0 are cleaned up automatically.
+- **Faster Done.** Fewer photos are read for name suggestions, and the Name PDF screen no longer reads the PDF again.
+- **No freeze when adding to a big PDF**, and fewer repeated area-name requests on weak internet.
+
 ## 4.0
 - **All Text from Photos:** under Smart Suggestions on the Name PDF screen, open "All Text from Photos" to see every line StampCam read from your photos, top to bottom. Tap any line to use it as the name, even when it isn't one of the top suggestions.
 
