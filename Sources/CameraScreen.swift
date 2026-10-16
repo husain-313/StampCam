@@ -25,8 +25,6 @@ struct CameraScreen: View {
     @State private var blink = false
     @State private var pinchStart: CGFloat?
     @State private var pickerItems: [PhotosPickerItem] = []
-    /// After picking from the library for a PDF, add them to it right away (no need to tap Done).
-    @State private var finishAfterImport = false
     @State private var focusPoint: CGPoint?
     @State private var focusHide: DispatchWorkItem?
     @State private var biasStart: Float?
@@ -181,26 +179,12 @@ struct CameraScreen: View {
             guard !items.isEmpty else { return }
             let picked = items
             pickerItems = []
-            let finish = finishAfterImport
-            finishAfterImport = false
             Task {
-                var added = 0
+                var photos: [Data] = []
                 for item in picked {
-                    if let data = try? await item.loadTransferable(type: Data.self) {
-                        camera.importPhoto(data)
-                        added += 1
-                    }
+                    if let data = try? await item.loadTransferable(type: Data.self) { photos.append(data) }
                 }
-                guard added > 0 else { return }
-                if finish {
-                    // Wait for the photos to be saved, then add them to the PDF.
-                    for _ in 0..<100 where camera.pendingCount > 0 {
-                        try? await Task.sleep(for: .milliseconds(100))
-                    }
-                    createPDF()
-                } else {
-                    showToast(added == 1 ? "1 photo added" : "\(added) photos added")
-                }
+                importPhotos(photos, finish: false)
             }
         }
         .sheet(item: $sheet) { item in
@@ -213,12 +197,12 @@ struct CameraScreen: View {
                     // Take Photos: back to the camera to add new photos to this PDF.
                     camera.appendTarget = url
                     sheet = nil
-                }, onLibraryPicked: { url, items in
-                    // Picked from the library on top of Your PDFs: add them to this PDF right away.
+                }, onLibraryPicked: { url, photos in
+                    // Picked from the library on top of Your PDFs: add them to this PDF right away
+                    // (or, if photos are waiting in the camera, add them to the set for Done).
                     camera.appendTarget = url
-                    finishAfterImport = camera.visibleShots.isEmpty
                     sheet = nil
-                    pickerItems = items
+                    importPhotos(photos, finish: camera.visibleShots.isEmpty)
                 })
                 .glassSheet()
             case .review:
@@ -860,6 +844,23 @@ struct CameraScreen: View {
                 showToast("Couldn't add to the PDF; saved as a new one")
             }
             // Otherwise saved quietly: the success tap on the phone is the only sign.
+        }
+    }
+
+    /// Adds library photos to the set. With [finish], they go straight into the PDF being added to.
+    private func importPhotos(_ photos: [Data], finish: Bool) {
+        guard !photos.isEmpty else { return }
+        photos.forEach { camera.importPhoto($0) }
+        guard finish else {
+            showToast(photos.count == 1 ? "1 photo added" : "\(photos.count) photos added")
+            return
+        }
+        Task {
+            // Wait for the photos to be saved, then add them to the PDF.
+            for _ in 0..<100 where camera.pendingCount > 0 {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            createPDF()
         }
     }
 
