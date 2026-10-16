@@ -1,2 +1,4 @@
-- **No photo is ever lost.** If a photo can't be added to the PDF, it stays in the camera and you get a message, instead of being deleted.
-- **Area names on weak internet.** If finding the area name fails, the app waits a little before asking again, so names keep showing up.
+- **Your photos are safer.** Saving the photo list could, in rare cases, damage it and lose the photos you hadn't made into a PDF yet. Saves now happen one at a time, and if the list is ever damaged, StampCam finds your photos again.
+- **PDFs stay small and sharp.** Adding photos to a PDF or arranging its pages now copies the pages as they are. Before, every page was saved again, which made the PDF bigger and a little blurrier each time.
+- **Stays on your phone.** Your photos and PDFs are no longer included in Google's phone backup.
+- **No leftover files** when adding to a PDF or arranging pages fails.
