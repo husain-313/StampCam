@@ -848,14 +848,17 @@ struct CameraScreen: View {
 
         let appendTo = camera.appendTarget
         camera.appendTarget = nil
-        camera.makePDF(appendingTo: appendTo) { url, _ in
-            guard let url else {
+        camera.makePDF(appendingTo: appendTo) { outcome in
+            guard outcome.url != nil else {
                 camera.appendTarget = appendTo
                 showToast("Couldn't create PDF")
                 return
             }
-            // Adding to an existing PDF: merge, keep its name.
-            if let appendTo, !FileStore.append(url, to: appendTo) {
+            if outcome.leftOut > 0 {
+                showToast(outcome.leftOut == 1
+                          ? "1 photo couldn't be added and is still in the camera"
+                          : "\(outcome.leftOut) photos couldn't be added and are still in the camera")
+            } else if outcome.appendFailed {
                 showToast("Couldn't add to the PDF; saved as a new one")
             }
             // Otherwise saved quietly: the success tap on the phone is the only sign.

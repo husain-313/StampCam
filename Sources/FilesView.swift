@@ -115,8 +115,9 @@ struct FilesView: View {
                     finishSelecting()
                 }
             }
-            .fileMover(isPresented: $showMover, files: selectedURLs) { _ in
-                // Moved to the folder you picked in the Files app.
+            .fileMover(isPresented: $showMover, files: selectedURLs) { result in
+                // Moved to the folder you picked in the Files app: forget their read text.
+                if case .success = result { selectedURLs.forEach(PDFText.delete) }
                 finishSelecting()
             }
             .onAppear(perform: reload)

@@ -25,25 +25,29 @@ enum TextScanner {
     }
 
     /// The best file names from the text in the PDF's photos (most likely first, at most 8),
-    /// and all the text, line by line. What was read from the full-size photos when the PDF
-    /// was made comes first; the PDF's pages are read too (small text can be missed there).
+    /// and all the text, line by line. Uses what was read from the full-size photos when the
+    /// PDF was made (kept privately in the app, see PDFText); older PDFs are read page by page.
     static func read(_ url: URL, maxPages: Int = 30) async -> Reading {
         await Task.detached(priority: .userInitiated) {
-            let saved = TextScanner.saved(in: url)
+            if let stored = PDFText.load(for: url), !stored.isEmpty {
+                return Reading(names: Array(stored.names.prefix(8)), lines: Array(stored.allLines.prefix(300)))
+            }
             let found = TextScanner.scan(url, maxPages: maxPages)
-            return Reading(names: Array(merge(saved.names, rank(found)).prefix(8)),
-                           lines: Array(merge(saved.lines, allLines(found)).prefix(300)))
+            return Reading(names: Array(rank(found).prefix(8)), lines: Array(allLines(found).prefix(300)))
         }.value
     }
 
-    /// Reads the full-size photos while the PDF is made; the result is saved inside the PDF.
-    /// Call off the main thread.
-    static func read(photos images: [CGImage]) -> Reading {
+    /// Reads the full-size photos while the PDF is made. Returns the best names, and the
+    /// lines of each photo (same order as [images]). Call off the main thread.
+    static func read(photos images: [CGImage]) -> (names: [String], pages: [[String]]) {
         var found: [Found] = []
+        var pages: [[String]] = []
         for (index, image) in images.enumerated() {
-            found += recognize(image, page: index)
+            let onPage = recognize(image, page: index)
+            found += onPage
+            pages.append(Array(allLines(onPage).prefix(150)))
         }
-        return Reading(names: rank(found), lines: Array(allLines(found).prefix(300)))
+        return (rank(found), pages)
     }
 
     /// Every line read, photo by photo, top to bottom, without repeats (only junk removed).
@@ -64,34 +68,16 @@ enum TextScanner {
         }
     }
 
-    /// Both lists in order, without repeats.
-    private static func merge(_ first: [String], _ second: [String]) -> [String] {
-        var seen = Set<String>()
-        return (first + second).filter { !$0.isEmpty && seen.insert(normalize($0)).inserted }
-    }
 
     /// A photo file, upright and at most 2400 pixels on the long side, for reading its text.
-    static func image(at url: URL) -> CGImage? {
+    static func image(at url: URL, maxPixel: Int = 2400) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 2400,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-    }
-
-    /// What was saved in the PDF when it was made: names in the keywords, all text in the subject.
-    private static func saved(in url: URL) -> Reading {
-        guard let attributes = PDFDocument(url: url)?.documentAttributes else { return Reading() }
-        var reading = Reading()
-        let value = attributes[PDFDocumentAttribute.keywordsAttribute]
-        if let list = value as? [String] { reading.names = list.filter { !$0.isEmpty } }
-        else if let text = value as? String, !text.isEmpty { reading.names = [text] }
-        if let subject = attributes[PDFDocumentAttribute.subjectAttribute] as? String {
-            reading.lines = subject.components(separatedBy: "\n").filter { !$0.isEmpty }
-        }
-        return reading
     }
 
     // MARK: Reading

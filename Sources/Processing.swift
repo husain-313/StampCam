@@ -171,28 +171,27 @@ enum PDFBuilder {
     /// Printed on the cover page of PDFs made with version 2.0 (so name suggestions can skip it).
     static let coverMark = "Made with StampCam"
 
+    /// A finished PDF, and which photos made it in (in page order).
+    struct Built {
+        let url: URL
+        let written: [UUID]
+    }
+
     /// Builds the PDF from the saved photos. The stamp, quality and page size
     /// are applied here, so the latest settings always count.
+    /// A photo that can't be read is left out; `written` says which ones made it in.
     static func build(_ pages: [PDFPageSource],
                       style: StampStyle,
                       quality: Quality,
                       pageSize: PageSize,
-                      names: [String] = [],
-                      allText: [String] = [],
                       onPage: ((Shot, Data) -> Void)? = nil,
-                      progress: @escaping (Int) -> Void) -> URL? {
+                      progress: @escaping (Int) -> Void) -> Built? {
         guard !pages.isEmpty else { return nil }
         // Named by when the first photo was taken, like "5.17 PM".
         let url = FileStore.newFileURL(takenAt: pages[0].shot.date)
-        // Name suggestions read from the full-size photos are kept inside the PDF (keywords).
-        let format = UIGraphicsPDFRendererFormat()
-        // …and every line of text read, for "All Text from Photos" (subject).
-        var info: [String: Any] = [:]
-        if !names.isEmpty { info[kCGPDFContextKeywords as String] = names }
-        if !allText.isEmpty { info[kCGPDFContextSubject as String] = allText.joined(separator: "\n") }
-        format.documentInfo = info
-        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: a4), format: format)
-        var written = 0
+        // Nothing read from the photos goes inside the PDF (see PDFText): it stays on the iPhone.
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: a4))
+        var written: [UUID] = []
 
         do {
             try renderer.writePDF(to: url) { ctx in
@@ -207,7 +206,7 @@ enum PDFBuilder {
 
                         let caption: String? = (page.shot.note?.isEmpty == false) ? page.shot.note : nil
                         drawPage(image, caption: caption, pageSize: pageSize, ctx: ctx)
-                        written += 1
+                        written.append(page.shot.id)
                     }
                     progress(index + 1)
                 }
@@ -216,11 +215,11 @@ enum PDFBuilder {
             return nil
         }
 
-        guard written > 0 else {
+        guard !written.isEmpty else {
             try? FileManager.default.removeItem(at: url)
             return nil
         }
-        return url
+        return Built(url: url, written: written)
     }
 
     // MARK: Photo pages
@@ -349,24 +348,18 @@ enum FileStore {
     /// Adds the pages of `newPDF` to the end of `target`, then removes `newPDF`.
     static func append(_ newPDF: URL, to target: URL) -> Bool {
         guard let base = PDFDocument(url: target), let extra = PDFDocument(url: newPDF) else { return false }
+        let basePages = base.pageCount
         for i in 0..<extra.pageCount {
             guard let page = extra.page(at: i)?.copy() as? PDFPage else { continue }
             base.insert(page, at: base.pageCount)
         }
-        // Keep the saved name suggestions of both.
-        let names = keywords(base) + keywords(extra).filter { !keywords(base).contains($0) }
-        var attributes = base.documentAttributes ?? [:]
-        if !names.isEmpty { attributes[PDFDocumentAttribute.keywordsAttribute] = Array(names.prefix(12)) }
-        let lines = [base, extra]
-            .compactMap { $0.documentAttributes?[PDFDocumentAttribute.subjectAttribute] as? String }
-            .filter { !$0.isEmpty }
-        if !lines.isEmpty { attributes[PDFDocumentAttribute.subjectAttribute] = lines.joined(separator: "\n") }
-        base.documentAttributes = attributes
+        stripReadText(base)
         let temp = folder.appendingPathComponent(".merge-\(UUID().uuidString).pdf")
         guard base.write(to: temp) else { return false }
         do {
             _ = try FileManager.default.replaceItemAt(target, withItemAt: temp)
             try? FileManager.default.removeItem(at: newPDF)
+            PDFText.append(newPDF, to: target, basePages: basePages)
             return true
         } catch {
             try? FileManager.default.removeItem(at: temp)
@@ -378,8 +371,7 @@ enum FileStore {
     /// Pages left out of [order] are removed.
     static func arrangePages(_ url: URL, order: [Int]) -> Bool {
         guard !order.isEmpty, let source = PDFDocument(url: url) else { return false }
-        let result = PDFDocument()
-        result.documentAttributes = source.documentAttributes     // keeps saved name suggestions
+        let result = PDFDocument()     // no hidden text inside: it's kept in the app (PDFText)
         for index in order {
             guard let page = source.page(at: index)?.copy() as? PDFPage else { return false }
             result.insert(page, at: result.pageCount)
@@ -388,6 +380,7 @@ enum FileStore {
         guard result.write(to: temp) else { return false }
         do {
             _ = try FileManager.default.replaceItemAt(url, withItemAt: temp)
+            PDFText.arrange(url, order: order)
             return true
         } catch {
             try? FileManager.default.removeItem(at: temp)
@@ -395,15 +388,36 @@ enum FileStore {
         }
     }
 
-    private static func keywords(_ document: PDFDocument) -> [String] {
-        let value = document.documentAttributes?[PDFDocumentAttribute.keywordsAttribute]
-        if let list = value as? [String] { return list }
-        if let text = value as? String, !text.isEmpty { return [text] }
-        return []
+    /// 3.9–4.0 kept the text read from the photos inside the PDF (keywords and subject).
+    /// It now stays in the app only, so it's removed from PDFs that still have it.
+    private static func stripReadText(_ document: PDFDocument) {
+        guard var attributes = document.documentAttributes else { return }
+        attributes[PDFDocumentAttribute.keywordsAttribute] = nil
+        attributes[PDFDocumentAttribute.subjectAttribute] = nil
+        document.documentAttributes = attributes
+    }
+
+    /// Once: removes the hidden text from PDFs made with 3.9–4.0. Keeps each file's date.
+    static func removeHiddenTextFromOldPDFs() {
+        for file in list() {
+            guard let document = PDFDocument(url: file.url),
+                  let attributes = document.documentAttributes,
+                  attributes[PDFDocumentAttribute.keywordsAttribute] != nil
+                    || attributes[PDFDocumentAttribute.subjectAttribute] != nil else { continue }
+            stripReadText(document)
+            let temp = folder.appendingPathComponent(".clean-\(UUID().uuidString).pdf")
+            guard document.write(to: temp) else { continue }
+            if (try? FileManager.default.replaceItemAt(file.url, withItemAt: temp)) != nil {
+                try? FileManager.default.setAttributes([.modificationDate: file.date], ofItemAtPath: file.url.path)
+            } else {
+                try? FileManager.default.removeItem(at: temp)
+            }
+        }
     }
 
     static func delete(_ file: PDFFile) {
         try? FileManager.default.removeItem(at: file.url)
+        PDFText.delete(for: file.url)
     }
 
     /// Removes characters that can't be in a file name.
@@ -432,6 +446,7 @@ enum FileStore {
         }
         do {
             try FileManager.default.moveItem(at: url, to: target)
+            PDFText.move(from: url, to: target)
             return target
         } catch {
             return nil
