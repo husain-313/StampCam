@@ -552,9 +552,11 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     // MARK: Stamp
 
     /// The stamp lines for a photo, using the current settings.
+    /// Photos added from the library get no stamp: only photos taken here show when and where.
     func stampLines(for shot: Shot) -> [String] {
-        StampText.lines(date: shot.date, place: shot.placeName,
-                        coordinate: shot.location?.coordinate, heading: shot.heading)
+        if shot.imported == true { return [] }
+        return StampText.lines(date: shot.date, place: shot.placeName,
+                               coordinate: shot.location?.coordinate, heading: shot.heading)
     }
 
     // MARK: PDF
