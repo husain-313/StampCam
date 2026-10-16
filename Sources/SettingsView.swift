@@ -17,23 +17,17 @@ struct SettingsView: View {
     @AppStorage(Keys.stampSize) private var stampSize = Defaults.stampSize
     @AppStorage(Keys.stampColor) private var stampColor = StampColor.white.rawValue
     @AppStorage(Keys.quality) private var quality = Quality.medium.rawValue
-    @AppStorage(Keys.pageSize) private var pageSize = PageSize.photo.rawValue
-    @AppStorage(Keys.shareAfterDone) private var shareAfterDone = true
-    @AppStorage(Keys.askNameAfterDone) private var askNameAfterDone = true
     @AppStorage(Keys.stampNote) private var stampNote = ""
-    @AppStorage(Keys.showCoordinates) private var showCoordinates = false
-    @AppStorage(Keys.showHeading) private var showHeading = false
-    @AppStorage(Keys.seenCameraTips) private var seenCameraTips = false
 
     @Environment(\.dismiss) private var dismiss
 
     private var stampOn: Bool {
-        showDate || showTime || showLocation || showCoordinates || showHeading
+        showDate || showTime || showLocation
             || !stampNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var previewLines: [String] {
-        _ = (showDate, showTime, use24Hour, showLocation, showCoordinates, showHeading, stampNote)   // refresh on change
+        _ = (showDate, showTime, use24Hour, showLocation, stampNote)   // refresh on change
         return StampText.lines(date: Date(), place: locationName ?? "Area, Country",
                                coordinate: CLLocationCoordinate2D(latitude: 26.12912, longitude: 50.55503),
                                heading: 225)
@@ -64,12 +58,10 @@ struct SettingsView: View {
                     Toggle("24-Hour Time", isOn: $use24Hour)
                         .disabled(!showTime)
                     Toggle("Area Name", isOn: $showLocation)
-                    Toggle("GPS Coordinates", isOn: $showCoordinates)
-                    Toggle("Compass Direction", isOn: $showHeading)
                 } header: {
                     Text("On the Photo")
                 } footer: {
-                    Text("The note is printed on every photo and suggested as the PDF's name. Turn Date and Time on together or on their own. Compass direction shows which way the camera faced (like SW 225°). Stamp settings apply to all photos in the set when you tap Done, even ones you already took.")
+                    Text("The note is printed on every photo and suggested as the PDF's name. Turn Date and Time on together or on their own. Stamp settings apply to all photos in the set when you tap Done, even ones you already took.")
                 }
 
                 Section("Text") {
@@ -97,17 +89,6 @@ struct SettingsView: View {
                 .disabled(!stampOn)
 
                 Section {
-                    Button {
-                        seenCameraTips = false
-                        dismiss()
-                    } label: {
-                        Label("Show Camera Tips", systemImage: "hand.tap")
-                    }
-                } footer: {
-                    Text("Shows the swipe, zoom and focus gestures again.")
-                }
-
-                Section {
                     Toggle("Save to Photos", isOn: $saveToPhotos)
                 } header: {
                     Text("Photos")
@@ -127,19 +108,11 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Picker("Page Size", selection: $pageSize) {
-                        ForEach(PageSize.allCases) { Text($0.title).tag($0.rawValue) }
-                    }
-                    Toggle("Name File After Done", isOn: $askNameAfterDone)
-                    Toggle("Share After Done", isOn: $shareAfterDone)
+                    Label("Done saves the PDF quietly", systemImage: "doc.richtext")
                 } header: {
                     Text("PDF")
                 } footer: {
-                    Text("Fit to Photo: each page has the photo's shape, no margins. A4: standard paper with white margins, best for printing.\n\n"
-                         + "Notes you add to photos are printed under them.\n\n"
-                         + (askNameAfterDone
-                            ? "After Done you can name the PDF, with smart suggestions from the text in your photos. You can always rename later from the folder button."
-                            : "PDFs are named by the time of the first photo, like 5.17 PM. You can rename them anytime from the folder button."))
+                    Text("PDFs are named by the time of the first photo, like 5.17 PM. Each page has the photo's shape. Notes you add to photos are printed under them. Rename or share anytime from the folder button.")
                 }
 
                 Section("About") {

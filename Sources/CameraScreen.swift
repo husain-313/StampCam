@@ -12,8 +12,6 @@ struct CameraScreen: View {
     @StateObject private var orientation = DeviceOrientation()
 
     @AppStorage(Keys.showLocation) private var showLocation = true
-    @AppStorage(Keys.shareAfterDone) private var shareAfterDone = true
-    @AppStorage(Keys.askNameAfterDone) private var askNameAfterDone = true
     @AppStorage(Keys.showDate) private var showDate = true
     @AppStorage(Keys.showTime) private var showTime = true
     @AppStorage(Keys.use24Hour) private var use24Hour = false
@@ -21,8 +19,6 @@ struct CameraScreen: View {
     @AppStorage(Keys.stampSize) private var stampSize = Defaults.stampSize
     @AppStorage(Keys.stampColor) private var stampColor = StampColor.white.rawValue
     @AppStorage(Keys.stampNote) private var stampNote = ""
-    @AppStorage(Keys.showCoordinates) private var showCoordinates = false
-    @AppStorage(Keys.showHeading) private var showHeading = false
 
     @State private var sheet: ActiveSheet?
     @State private var toast: String?
@@ -43,7 +39,6 @@ struct CameraScreen: View {
     @State private var dialStart: CGFloat = 1
     @State private var ignoreZoomTapsUntil = Date.distantPast
     @AppStorage("showGrid") private var showGrid = false
-    @AppStorage(Keys.seenCameraTips) private var seenCameraTips = false
     @Environment(\.scenePhase) private var scenePhase
 
     enum ActiveSheet: Identifiable {
@@ -68,7 +63,7 @@ struct CameraScreen: View {
     /// Done is ready when there are photos and no PDF is still being made in the background.
     private var canFinish: Bool { !camera.visibleShots.isEmpty && camera.pendingCount == 0 && !camera.isMakingPDF }
     /// Location is needed for the area name, the coordinates or the direction.
-    private var needsLocation: Bool { showLocation || showCoordinates || showHeading }
+    private var needsLocation: Bool { showLocation }
 
     var body: some View {
         ZStack {
@@ -125,13 +120,6 @@ struct CameraScreen: View {
                 Spacer(minLength: 0)
             }
 
-            if !seenCameraTips && !camera.cameraDenied && sheet == nil {
-                CameraTips(hasCameraControl: camera.hasCameraControl) {
-                    Haptics.tap()
-                    withAnimation(.easeOut(duration: 0.25)) { seenCameraTips = true }
-                }
-                .transition(.opacity)
-            }
         }
         .modifier(HardwareShutter { if sheet == nil { shutter() } })
         .onAppear {
@@ -147,7 +135,7 @@ struct CameraScreen: View {
             case .active:
                 camera.start()
                 orientation.start()
-                location.setHeadingWanted(showHeading)
+                location.setHeadingWanted(false)     // the compass direction was removed in 3.5
                 if needsLocation { location.start() }
                 UIApplication.shared.isIdleTimerDisabled = true    // keep the screen on while shooting
             case .background:
@@ -161,9 +149,6 @@ struct CameraScreen: View {
         }
         .onChange(of: needsLocation) { _, on in
             if on { location.start() } else { location.stop() }
-        }
-        .onChange(of: showHeading) { _, on in
-            location.setHeadingWanted(on)
         }
         .onChange(of: orientation.hold, initial: true) { _, _ in
             location.setHeadingOrientation(orientation.headingOrientation)
@@ -261,9 +246,8 @@ struct CameraScreen: View {
                     .presentationDetents([.medium, .large])
                     .ignoresSafeArea()
             case .rename(let url, let extra):
-                RenameSheet(url: url, extraSuggestion: extra) { finalURL in
+                RenameSheet(url: url, extraSuggestion: extra) { _ in
                     sheet = nil
-                    afterSaved(finalURL, delay: 0.5)
                 }
                 .glassSheet()
             }
@@ -714,12 +698,12 @@ struct CameraScreen: View {
     }
 
     private var stampVisible: Bool {
-        showDate || showTime || showLocation || showCoordinates || showHeading
+        showDate || showTime || showLocation
             || !stampNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func liveLines(at date: Date) -> [String] {
-        _ = (use24Hour, stampNote, showDate, showTime, showLocation, showCoordinates, showHeading)   // refresh when settings change
+        _ = (use24Hour, stampNote, showDate, showTime, showLocation)   // refresh when settings change
         return StampText.lines(date: date, place: location.placeName,
                                coordinate: location.current?.coordinate, heading: location.heading)
     }
@@ -869,50 +853,26 @@ struct CameraScreen: View {
         }
     }
 
-    /// Done: the photos leave the camera at once and the PDF is made quietly in the
-    /// background. The name sheet (or share sheet) appears when the PDF is ready.
+    /// Done: the photos leave the camera at once and the PDF is saved quietly in the
+    /// background. Name or share it later from Your PDFs.
     private func createPDF() {
         guard canFinish else { return }
         if sheet != nil { sheet = nil }
 
         let appendTo = camera.appendTarget
         camera.appendTarget = nil
-        camera.makePDF(appendingTo: appendTo) { url, areaName in
+        camera.makePDF(appendingTo: appendTo) { url, _ in
             guard let url else {
                 camera.appendTarget = appendTo
                 showToast("Couldn't create PDF")
                 return
             }
-            // Something else may be open by now; close it first.
-            let delay = sheet != nil ? 0.5 : 0
-            if sheet != nil { sheet = nil }
-            if let appendTo {
-                // Adding to an existing PDF: merge, keep its name.
-                if FileStore.append(url, to: appendTo) {
-                    afterSaved(appendTo, delay: delay)
-                } else {
-                    showToast("Couldn't add to the PDF; saved as a new one")
-                }
-                return
+            // Adding to an existing PDF: merge, keep its name.
+            if let appendTo, !FileStore.append(url, to: appendTo) {
+                showToast("Couldn't add to the PDF; saved as a new one")
             }
-            if askNameAfterDone {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    sheet = .rename(url, areaName)
-                }
-            } else {
-                afterSaved(url, delay: delay)
-            }
+            // Otherwise saved quietly: the success tap on the phone is the only sign.
         }
-    }
-
-    /// After the PDF has its final name: share it or show a confirmation.
-    private func afterSaved(_ url: URL, delay: Double) {
-        if shareAfterDone {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                sheet = .share(url)
-            }
-        }
-        // Otherwise saved quietly: the success tap on the phone is the only sign.
     }
 
     private func showToast(_ text: String) {
