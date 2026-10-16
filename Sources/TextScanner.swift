@@ -26,14 +26,30 @@ enum TextScanner {
 
     /// The best file names from the text in the PDF's photos (most likely first, at most 8),
     /// and all the text, line by line. Uses what was read from the full-size photos when the
-    /// PDF was made (kept privately in the app, see PDFText); older PDFs are read page by page.
+    /// PDF was made (kept privately in the app, see PDFText); pages not read yet (photo 7 on,
+    /// older PDFs) are read here, page by page, and kept for next time.
     static func read(_ url: URL, maxPages: Int = 30) async -> Reading {
         await Task.detached(priority: .userInitiated) {
-            if let stored = PDFText.load(for: url), !stored.isEmpty {
-                return Reading(names: Array(stored.names.prefix(8)), lines: Array(stored.allLines.prefix(300)))
+            guard let document = PDFDocument(url: url) else { return Reading(names: [], lines: []) }
+            // Saved text, if it still matches the PDF; otherwise start fresh.
+            var stored = PDFText.load(for: url) ?? PDFText.Stored()
+            if stored.pages.count != document.pageCount {
+                stored = PDFText.Stored(pages: Array(repeating: nil, count: document.pageCount))
             }
-            let found = TextScanner.scan(url, maxPages: maxPages)
-            return Reading(names: Array(rank(found).prefix(8)), lines: Array(allLines(found).prefix(300)))
+            // Read the pages that weren't read yet, then keep the result for next time.
+            let missing = Array(stored.unread.prefix(maxPages))
+            if !missing.isEmpty {
+                var found: [Found] = []
+                for index in missing {
+                    let onPage = scanPage(document, index)
+                    found += onPage
+                    stored.pages[index] = Array(allLines(onPage).prefix(150))
+                }
+                var seen = Set(stored.names.map(normalize))
+                stored.names += rank(found).filter { seen.insert(normalize($0)).inserted }
+                PDFText.save(stored, for: url)
+            }
+            return Reading(names: Array(stored.names.prefix(8)), lines: Array(stored.allLines.prefix(300)))
         }.value
     }
 
@@ -82,23 +98,17 @@ enum TextScanner {
 
     // MARK: Reading
 
-    private static func scan(_ url: URL, maxPages: Int) -> [Found] {
-        guard let document = PDFDocument(url: url) else { return [] }
-        var found: [Found] = []
-        var scanned = 0
-        for index in 0..<document.pageCount where scanned < maxPages {
-            guard let page = document.page(at: index) else { continue }
-            // Skip the cover page that version 2.0 added (it's real text, not a photo).
-            if page.string?.contains(PDFBuilder.coverMark) == true { continue }
-            scanned += 1
-            let bounds = page.bounds(for: .mediaBox)
-            let longest = max(bounds.width, bounds.height)
-            guard longest > 0 else { continue }
-            let size = CGSize(width: bounds.width * 1600 / longest, height: bounds.height * 1600 / longest)
-            guard let image = page.thumbnail(of: size, for: .mediaBox).cgImage else { continue }
-            found += recognize(image, page: index)
-        }
-        return found
+    /// Reads one page of a PDF ([] for a page with no photo text).
+    private static func scanPage(_ document: PDFDocument, _ index: Int) -> [Found] {
+        guard let page = document.page(at: index) else { return [] }
+        // Skip the cover page that version 2.0 added (it's real text, not a photo).
+        if page.string?.contains(PDFBuilder.coverMark) == true { return [] }
+        let bounds = page.bounds(for: .mediaBox)
+        let longest = max(bounds.width, bounds.height)
+        guard longest > 0 else { return [] }
+        let size = CGSize(width: bounds.width * 1600 / longest, height: bounds.height * 1600 / longest)
+        guard let image = page.thumbnail(of: size, for: .mediaBox).cgImage else { return [] }
+        return recognize(image, page: index)
     }
 
     /// Reads the text twice: once for English and once for Arabic. With Arabic and English

@@ -183,6 +183,9 @@ struct FilesView: View {
 
     private func reload() {
         files = FileStore.list()
+        // Forget the text of PDFs deleted or renamed in the Files app.
+        let urls = files.map(\.url)
+        DispatchQueue.global(qos: .utility).async { PDFText.removeOrphans(keeping: urls) }
         selection = selection.filter { url in files.contains { $0.url == url } }
     }
 }
