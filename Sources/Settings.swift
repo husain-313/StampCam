@@ -147,21 +147,36 @@ enum StampPosition: String, CaseIterable, Identifiable {
 // MARK: - Stamp color
 
 enum StampColor: String, CaseIterable, Identifiable {
-    case white, yellow, black
+    case white, yellow, orange, red, pink, purple, blue, cyan, green, black
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .white: return "White"
         case .yellow: return "Yellow"
+        case .orange: return "Orange"
+        case .red: return "Red"
+        case .pink: return "Pink"
+        case .purple: return "Purple"
+        case .blue: return "Blue"
+        case .cyan: return "Light Blue"
+        case .green: return "Green"
         case .black: return "Black"
         }
     }
 
+    /// The same colors as StampCam for Android.
     var uiColor: UIColor {
         switch self {
         case .white: return .white
         case .yellow: return UIColor(red: 1.0, green: 0.84, blue: 0.04, alpha: 1)
+        case .orange: return UIColor(red: 1.0, green: 0.584, blue: 0.0, alpha: 1)
+        case .red: return UIColor(red: 1.0, green: 0.231, blue: 0.188, alpha: 1)
+        case .pink: return UIColor(red: 1.0, green: 0.435, blue: 0.71, alpha: 1)
+        case .purple: return UIColor(red: 0.749, green: 0.353, blue: 0.949, alpha: 1)
+        case .blue: return UIColor(red: 0.039, green: 0.518, blue: 1.0, alpha: 1)
+        case .cyan: return UIColor(red: 0.392, green: 0.824, blue: 1.0, alpha: 1)
+        case .green: return UIColor(red: 0.188, green: 0.82, blue: 0.345, alpha: 1)
         case .black: return .black
         }
     }

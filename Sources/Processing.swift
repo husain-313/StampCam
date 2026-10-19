@@ -18,16 +18,18 @@ enum StampText {
 
     private static let dayOnly = formatter("d MMM yyyy")                // 13 Oct 2026
     private static let clock12 = formatter("h:mm a")
+    /// On the photo the hour always has two digits ("03:50 PM").
+    private static let clock12Stamp = formatter("hh:mm a")
     private static let clock24 = formatter("HH:mm")
 
-    /// Date and/or time for the stamp, depending on the settings ("2026-10-13  1:05 PM").
+    /// Date and/or time for the stamp, depending on the settings ("2026-10-13  01:05 PM").
     /// Nil when both are off.
     static func dateTime(_ date: Date) -> String? {
         let d = UserDefaults.standard
         var parts: [String] = []
         if d.bool(forKey: Keys.showDate) { parts.append(dateOnlyStamp.string(from: date)) }
         if d.bool(forKey: Keys.showTime) {
-            parts.append((d.bool(forKey: Keys.use24Hour) ? clock24 : clock12).string(from: date))
+            parts.append((d.bool(forKey: Keys.use24Hour) ? clock24 : clock12Stamp).string(from: date))
         }
         return parts.isEmpty ? nil : parts.joined(separator: "  ")
     }
@@ -187,7 +189,7 @@ enum PDFBuilder {
                       onPage: ((Shot, Data) -> Void)? = nil,
                       progress: @escaping (Int) -> Void) -> Built? {
         guard !pages.isEmpty else { return nil }
-        // Named by when the first photo was taken, like "5.17 PM".
+        // Named by when the first photo was taken, like "5:17 PM".
         let url = FileStore.newFileURL(takenAt: pages[0].shot.date)
         // Nothing read from the photos goes inside the PDF (see PDFText): it stays on the iPhone.
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: a4))
@@ -218,6 +220,11 @@ enum PDFBuilder {
         guard !written.isEmpty else {
             try? FileManager.default.removeItem(at: url)
             return nil
+        }
+        // The first photo's time, shown under the PDF in Your PDFs. Renaming keeps it, and so
+        // do adding pages and arranging them (replaceItemAt keeps the original's creation date).
+        if let first = pages.first(where: { written.contains($0.shot.id) }) {
+            try? FileManager.default.setAttributes([.creationDate: first.shot.date], ofItemAtPath: url.path)
         }
         return Built(url: url, written: written)
     }
@@ -305,6 +312,8 @@ struct PDFFile: Identifiable, Hashable {
     let url: URL
     let date: Date
     let size: Int64
+    /// When the first photo was taken (for PDFs made before 4.3: when the PDF was made).
+    let takenAt: Date
     var id: URL { url }
     var name: String { url.deletingPathExtension().lastPathComponent }
 }
@@ -314,12 +323,12 @@ enum FileStore {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
-    /// A new PDF named by the time of its first photo, 12-hour (like "5.17 PM").
-    /// Another PDF from the same minute becomes "5.17 PM 2".
+    /// A new PDF named by the time of its first photo, 12-hour (like "5:17 PM").
+    /// Another PDF from the same minute becomes "5:17 PM 2".
     static func newFileURL(takenAt date: Date) -> URL {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "h.mm a"
+        f.dateFormat = "h:mm a"
         let base = f.string(from: date)
         var url = folder.appendingPathComponent("\(base).pdf")
         var n = 2
@@ -331,16 +340,18 @@ enum FileStore {
     }
 
     static func list() -> [PDFFile] {
-        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .creationDateKey, .fileSizeKey]
         let urls = (try? FileManager.default.contentsOfDirectory(at: folder,
                                                                  includingPropertiesForKeys: keys)) ?? []
         return urls
             .filter { $0.pathExtension.lowercased() == "pdf" }
             .map { url in
                 let values = try? url.resourceValues(forKeys: Set(keys))
+                let date = values?.contentModificationDate ?? .distantPast
                 return PDFFile(url: url,
-                               date: values?.contentModificationDate ?? .distantPast,
-                               size: Int64(values?.fileSize ?? 0))
+                               date: date,
+                               size: Int64(values?.fileSize ?? 0),
+                               takenAt: values?.creationDate ?? date)
             }
             .sorted { $0.date > $1.date }
     }
@@ -426,17 +437,34 @@ enum FileStore {
         PDFText.delete(for: file.url)
     }
 
-    /// Removes characters that can't be in a file name.
+    /// A name phones, computers and websites accept: no characters that can't be in a file
+    /// name, and no dots (some websites refuse "5.17 PM.pdf"). Arabic and other letters are
+    /// kept in their standard form (NFC), so they read the same on every computer.
     static func sanitize(_ name: String) -> String {
-        let bad = CharacterSet(charactersIn: "/\\:*?\"<>|")
+        let bad = CharacterSet(charactersIn: "/\\*?\"<>|.")
             .union(.newlines)
             .union(.controlCharacters)
         let cleaned = name
+            .precomposedStringWithCanonicalMapping
             .components(separatedBy: bad)
             .joined(separator: " ")
-            .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespaces))
+            .replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
         return String(cleaned.prefix(80))
     }
+
+    /// Older PDFs were named like "5.17 PM", and some websites refuse a file with a dot in its
+    /// name. Times become "5:17 PM"; any other dot becomes a space. Runs at every launch, so
+    /// files copied in through the Files app are fixed too.
+    static func removeDotsFromNames() {
+        for file in list() where file.name.contains(".") {
+            let name = file.name.replacingOccurrences(of: "^(\\d{1,2})\\.(\\d{2} [AP]M)",
+                                                      with: "$1:$2",
+                                                      options: .regularExpression)
+            _ = rename(file.url, to: name)
+        }
+    }
+
 
     /// Renames a PDF. Returns the new URL, or nil if the name is empty or the move fails.
     static func rename(_ url: URL, to rawName: String) -> URL? {

@@ -7,6 +7,8 @@ import SwiftUI
 struct StampCamApp: App {
     init() {
         Defaults.register()
+        // "5.17 PM" becomes "5:17 PM": some websites refuse a file with a dot in its name (4.3).
+        FileStore.removeDotsFromNames()
         // Remove the hidden text that 3.9–4.0 kept inside PDFs. Marked done only after it
         // finishes, so if the app closes halfway it simply runs again next time (4.2).
         if !UserDefaults.standard.bool(forKey: "cleanedPDFText42") {

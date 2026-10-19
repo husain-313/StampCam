@@ -33,7 +33,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 - **Note line** — like a project or client name — on every photo
 - Clean bold text — no box, with a soft shadow so it's easy to read on any photo
 - See the stamp live on the camera while you shoot
-- Turn each one on or off, and choose the corner, text size and color
+- Turn each one on or off, and choose the corner, text size and color (white, yellow, orange, red, pink, purple, blue, light blue, green or black)
 - If the location isn't ready yet, StampCam adds it to those photos as soon as it is
 - Change the stamp settings anytime — they apply to the whole set when you tap Done
 
@@ -44,7 +44,7 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 - Add more photos at any time
 - Press and drag to change the order
 - **Add a note** to any photo — it's printed under the photo in the PDF
-- Add photos from your library — they keep their own date and location
+- Add photos from your library — they keep their own date and location. With no photos yet, tap the box next to the shutter; in Review, use Add Photos → Add from Library
 - Your photos are saved as you shoot — close the app or restart your phone and pick up where you left off
 
 ### ✨ Smart file names
@@ -55,8 +55,9 @@ StampCam is a simple iPhone camera that turns your photos into a single PDF, wit
 
 ### 📁 Your PDFs
 - All PDFs are saved inside the app
-- Open, rename, share or delete them anytime
-- Select several (or all) at once to share, move to the Files app or delete
+- Open, rename, share or delete them anytime (names never have a dot, so websites accept them)
+- Select several (or all) at once to share, save a copy to the Files app or delete
+- Each PDF shows its name, the time of its first photo and the date
 - Add more photos to the end of a PDF you already made
 - Stamped photos are also saved to a StampCam album in Photos (you can turn this off)
 - Also available in the **Files** app under *On My iPhone › StampCam*

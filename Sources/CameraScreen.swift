@@ -24,7 +24,6 @@ struct CameraScreen: View {
     @State private var toast: String?
     @State private var blink = false
     @State private var pinchStart: CGFloat?
-    @State private var pickerItems: [PhotosPickerItem] = []
     @State private var focusPoint: CGPoint?
     @State private var focusHide: DispatchWorkItem?
     @State private var biasStart: Float?
@@ -190,18 +189,6 @@ struct CameraScreen: View {
                 showToast("Allow Photos access in Settings to save there")
             }
         }
-        .onChange(of: pickerItems) { _, items in
-            guard !items.isEmpty else { return }
-            let picked = items
-            pickerItems = []
-            Task {
-                var photos: [Data] = []
-                for item in picked {
-                    if let data = try? await item.loadTransferable(type: Data.self) { photos.append(data) }
-                }
-                importPhotos(photos, finish: false)
-            }
-        }
         .sheet(item: $sheet) { item in
             switch item {
             case .settings:
@@ -222,6 +209,7 @@ struct CameraScreen: View {
                 .glassSheet()
             case .review:
                 ReviewView(camera: camera,
+                           onAddFromLibrary: { addFromLibrary() },
                            onRetake: { id in
                                camera.replaceTarget = id
                                sheet = nil
@@ -269,10 +257,6 @@ struct CameraScreen: View {
             Spacer(minLength: 4)
 
             HStack(spacing: 2) {
-                PhotosPicker(selection: $pickerItems, maxSelectionCount: 30, matching: .images) {
-                    barIcon("photo.on.rectangle")
-                }
-                .accessibilityLabel("Add from Photos")
                 Button {
                     Haptics.tap()
                     sheet = .files
@@ -449,11 +433,16 @@ struct CameraScreen: View {
 
     private var bottomBar: some View {
         HStack {
+            // The last photo opens Review. With no photos yet, it opens the photo library (4.4).
             Button {
                 Haptics.tap()
-                sheet = .review
+                if totalCount == 0 {
+                    addFromLibrary()
+                } else {
+                    sheet = .review
+                }
             } label: { thumbnail.upright(orientation.iconAngle) }
-                .disabled(totalCount == 0)
+                .accessibilityLabel(totalCount == 0 ? "Add from Photos" : "Review Photos")
                 .frame(width: 80, alignment: .leading)
 
             Spacer()
@@ -495,6 +484,13 @@ struct CameraScreen: View {
                     Image(uiImage: thumb).resizable().scaledToFill()
                 } else {
                     Color.white.opacity(0.1)
+                        .overlay {
+                            if totalCount == 0 {
+                                Image(systemName: "photo.on.rectangle")
+                                    .font(.title3)
+                                    .foregroundStyle(.white)
+                            }
+                        }
                 }
             }
             .frame(width: 56, height: 56)
@@ -865,6 +861,11 @@ struct CameraScreen: View {
             }
             // Otherwise saved quietly: the success tap on the phone is the only sign.
         }
+    }
+
+    /// Opens the photo library on top of whatever is showing (camera or Review) and adds the picks to the set.
+    private func addFromLibrary() {
+        LibraryPicker.present { photos in importPhotos(photos, finish: false) }
     }
 
     /// Adds library photos to the set. With [finish], they go straight into the PDF being added to.

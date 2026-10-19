@@ -82,8 +82,14 @@ struct SettingsView: View {
                             Image(systemName: "textformat.size.larger").foregroundStyle(.secondary)
                         }
                     }
-                    Picker("Color", selection: $stampColor) {
-                        ForEach(StampColor.allCases) { Text($0.title).tag($0.rawValue) }
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Color")
+                            Spacer()
+                            Text((StampColor(rawValue: stampColor) ?? .white).title)
+                                .foregroundStyle(.secondary)
+                        }
+                        ColorCircles(selection: $stampColor)
                     }
                 }
                 .disabled(!stampOn)
@@ -112,7 +118,7 @@ struct SettingsView: View {
                 } header: {
                     Text("PDF")
                 } footer: {
-                    Text("PDFs are named by the time of the first photo, like 5.17 PM. Each page has the photo's shape. Notes you add to photos are printed under them. Rename or share anytime from the folder button.")
+                    Text("PDFs are named by the time of the first photo, like 5:17 PM. Each page has the photo's shape. Notes you add to photos are printed under them. Rename or share anytime from the folder button.")
                 }
 
                 Section("About") {
@@ -134,6 +140,34 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Stamp color circles
+
+/// A circle for each stamp color; the chosen one has a yellow ring.
+struct ColorCircles: View {
+    @Binding var selection: String
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 38), spacing: 10)], spacing: 10) {
+            ForEach(StampColor.allCases) { option in
+                let chosen = option.rawValue == selection
+                Circle()
+                    .fill(option.color)
+                    .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 1))
+                    .padding(4)
+                    .overlay(Circle().stroke(chosen ? Color.yellow : Color.clear, lineWidth: 2))
+                    .frame(width: 38, height: 38)
+                    .contentShape(Circle())
+                    .onTapGesture {
+                        selection = option.rawValue
+                        Haptics.tick()
+                    }
+                    .accessibilityLabel(option.title)
+                    .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
             }
         }
     }

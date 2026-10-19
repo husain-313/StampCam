@@ -15,7 +15,8 @@ struct FilesView: View {
     @State private var selection = Set<URL>()
     @State private var confirmBulkDelete = false
     @State private var showDeleteAlert = false
-    @State private var showMover = false
+    /// Saving copies of the selected PDFs to a folder in the Files app (they also stay here).
+    @State private var exporting: ExportedPDFs?
     /// Adds new photos to the end of this PDF by taking them with the camera.
     var onAddPhotos: (URL, AddPhotosSource) -> Void = { _, _ in }
     /// Photos picked from the library for this PDF (the library opens right here, on top).
@@ -94,10 +95,10 @@ struct FilesView: View {
                             Image(systemName: "square.and.arrow.up")
                         }
                         .disabled(selection.isEmpty)
-                        Button { showMover = true } label: {
+                        Button { exporting = ExportedPDFs(urls: selectedURLs) } label: {
                             Image(systemName: "folder")
                         }
-                        .accessibilityLabel("Move to Files")
+                        .accessibilityLabel("Save to Files")
                         .disabled(selection.isEmpty)
                         Button(role: .destructive) { confirmBulkDelete = true } label: {
                             Image(systemName: "trash")
@@ -115,10 +116,11 @@ struct FilesView: View {
                     finishSelecting()
                 }
             }
-            .fileMover(isPresented: $showMover, files: selectedURLs) { result in
-                // Moved to the folder you picked in the Files app: forget their read text.
-                if case .success = result { selectedURLs.forEach(PDFText.delete) }
-                finishSelecting()
+            // Copies go to the folder you pick in the Files app; the PDFs stay here too. (Before 4.3
+            // they were moved, so they disappeared from Your PDFs without a word.)
+            .sheet(item: $exporting, onDismiss: finishSelecting) { pdfs in
+                FileExporter(urls: pdfs.urls) { exporting = nil }
+                    .ignoresSafeArea()
             }
             .onAppear(perform: reload)
 
@@ -200,6 +202,19 @@ struct PDFCard: View {
     @State private var cover: UIImage?
     @State private var pages = 0
 
+    static let time: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "h:mm a"
+        return f
+    }()
+    static let day: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "d MMM yyyy"
+        return f
+    }()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
@@ -240,7 +255,8 @@ struct PDFCard: View {
             Text(file.name)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
-            Text(file.date.formatted(date: .abbreviated, time: .omitted))
+            // Time of the first photo and the date, like "5:17 PM · 19 Oct 2026".
+            Text(verbatim: "\(PDFCard.time.string(from: file.takenAt)) · \(PDFCard.day.string(from: file.takenAt))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -322,6 +338,40 @@ struct PDFDetailView: View {
             } message: {
                 Text("\"\(file.name)\" will be deleted. This can't be undone.")
             }
+    }
+}
+
+/// PDFs to save to the Files app.
+struct ExportedPDFs: Identifiable {
+    let id = UUID()
+    let urls: [URL]
+}
+
+/// Saves copies of PDFs to a folder you pick in the Files app.
+struct FileExporter: UIViewControllerRepresentable {
+    let urls: [URL]
+    var onFinish: () -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: urls, asCopy: true)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onFinish: () -> Void
+        init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            Haptics.tap()
+            onFinish()
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onFinish() }
     }
 }
 

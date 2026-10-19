@@ -5,6 +5,8 @@ import SwiftUI
 
 struct ReviewView: View {
     @ObservedObject var camera: CameraModel
+    /// Opens the photo library on top of Review; the picked photos join the set.
+    var onAddFromLibrary: () -> Void
     var onRetake: (UUID) -> Void
     var onCreatePDF: () -> Void
 
@@ -89,8 +91,13 @@ struct ReviewView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
+                    Menu {
+                        Button { dismiss() } label: {
+                            Label("Take Photos", systemImage: "camera")
+                        }
+                        Button(action: onAddFromLibrary) {
+                            Label("Add from Library", systemImage: "photo.on.rectangle")
+                        }
                     } label: {
                         Label("Add Photos", systemImage: "camera")
                             .labelStyle(.titleAndIcon)

@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.3
+- **One place for the photo library.** The library button at the top is gone. With no photos yet, the box next to the shutter shows a library icon: tap it to add photos from your library. After that it shows your last photo and opens Review, like before.
+- **Add from the library in Review too.** In Review, Add Photos now asks: Take Photos, or Add from Library.
+- **Saving to the Files app keeps the PDF in StampCam.** Before, the folder button moved the PDFs out of the app, so they disappeared from Your PDFs. Now a copy is saved and the PDF stays here too.
+- **No dots in PDF names.** Some websites refused files named like *5.17 PM*. New PDFs are named like **5:17 PM**, your older PDFs are renamed the same way, and a dot you type in a name becomes a space.
+- **Your PDFs shows the time and date** of each PDF's first photo under its name, like *5:17 PM · 19 Oct 2026*, even after you rename it.
+- **Time on photos always has two digits,** like **03:50 PM** instead of 3:50 PM.
+- **More colors for the stamp:** besides white, yellow and black, the date and time can now be orange, red, pink, purple, blue, light blue or green. Pick one from the color circles in Settings.
+
 ## 4.2
 - **All the text, from every photo.** "All Text from Photos" and Smart Suggestions read every page again, not just the first 6. Pages not read yet are read the first time you open Name PDF, and remembered after that. This also fixes PDFs made with 4.1, and older PDFs you added photos to.
 - **Done is quicker.** The PDF is saved first; the text in your photos is read afterwards, in the background.
