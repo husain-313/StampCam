@@ -1,5 +1,8 @@
 # Changelog
 
+## 4.4
+- **Fix: sideways selfies come out upright.** Photos taken with the front camera while holding the iPhone sideways were saved upside down. They're upright now, like photos from the back camera.
+
 ## 4.3
 - **One place for the photo library.** The library button at the top is gone. With no photos yet, the box next to the shutter shows a library icon: tap it to add photos from your library. After that it shows your last photo and opens Review, like before.
 - **Add from the library in Review too.** In Review, Add Photos now asks: Take Photos, or Add from Library.

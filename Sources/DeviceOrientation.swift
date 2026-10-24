@@ -63,7 +63,7 @@ final class DeviceOrientation: ObservableObject {
         motion.stopDeviceMotionUpdates()
     }
 
-    /// Rotation for the back camera's photo so it comes out upright.
+    /// Rotation for the back camera's photo so it comes out upright (CameraModel turns it for the front camera).
     var captureAngle: CGFloat {
         switch hold {
         case .portrait: return 90

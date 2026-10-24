@@ -385,8 +385,11 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                 DispatchQueue.main.async { self.dropSlot(captureID) }
                 return
             }
-            if connection.isVideoRotationAngleSupported(rotationAngle) {
-                connection.videoRotationAngle = rotationAngle   // upright in any orientation
+            // The front camera faces the other way, so sideways shots need the opposite turn.
+            var angle = rotationAngle
+            if self.position == .front && (angle == 0 || angle == 180) { angle = 180 - angle }
+            if connection.isVideoRotationAngleSupported(angle) {
+                connection.videoRotationAngle = angle   // upright in any orientation
             }
             if self.output.supportedFlashModes.contains(flashMode) {
                 settings.flashMode = flashMode
